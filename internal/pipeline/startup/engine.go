@@ -117,21 +117,33 @@ func (e *Engine) reconcile(ctx context.Context, anchor Anchor) (State, loaded, e
 	closedSame := false
 	seenIDs := map[int64]bool{}
 	seenNodes := map[string]bool{}
+	seenNumbers := map[int64]bool{}
 	for _, issue := range issues {
 		if issue.Content.Body == nil || !strings.Contains(*issue.Content.Body, ControlMarker) {
 			continue
 		}
-		if issue.Kind != "issue" || issue.Number <= 0 || issue.DatabaseID <= 0 || issue.NodeID == "" || seenIDs[issue.DatabaseID] || seenNodes[issue.NodeID] {
+		if issue.Kind != "issue" || issue.Number <= 0 || issue.DatabaseID <= 0 || strings.TrimSpace(issue.NodeID) == "" {
+			s, err := block(s, "control_native_identity_conflict", "control_issue", ErrBlocked)
+			return s, value, err
+		}
+		if seenIDs[issue.DatabaseID] || seenNodes[issue.NodeID] || seenNumbers[issue.Number] {
 			s, err := block(s, "control_native_identity_conflict", "control_issue", ErrConflict)
 			return s, value, err
 		}
 		seenIDs[issue.DatabaseID] = true
 		seenNodes[issue.NodeID] = true
+		seenNumbers[issue.Number] = true
+		// A marker is evidence even on a closed Issue. Validate it before any
+		// lifecycle filtering; unreadable history must not become fresh authority.
+		record, err := e.validateControl(ctx, issue, anchor, value.manifest)
+		if err != nil {
+			s, err := block(s, "control_record_drift", "control_issue", ErrBlocked)
+			return s, value, err
+		}
 		if issue.State == "open" {
 			active = append(active, issue)
 		} else if issue.State == "closed" {
-			var record ControlRecord
-			if decodeControl(*issue.Content.Body, &record) == nil && (record.Cycle == value.manifest.Cycle || record.OperationID == value.manifest.OperationID) {
+			if record.Cycle == value.manifest.Cycle || record.OperationID == value.manifest.OperationID {
 				closedSame = true
 			}
 		} else {
@@ -197,6 +209,43 @@ func (e *Engine) reconcile(ctx context.Context, anchor Anchor) (State, loaded, e
 	s.Status = "ready_for_design"
 	s.Phase = "design"
 	return s, value, nil
+}
+
+// validateControl binds each visible record to its own immutable manifest,
+// including historical Controller identity. Historical host readiness, old input
+// availability and the current authenticated user are not re-evaluated here.
+func (e *Engine) validateControl(ctx context.Context, issue gh.Issue, anchor Anchor, current Manifest) (ControlRecord, error) {
+	var record ControlRecord
+	if issue.Content.Body == nil || decodeControl(*issue.Content.Body, &record) != nil || record.Schema != ControlSchema || record.Kind != "project_control" || record.Repository != anchor.Repository || !keyPattern.MatchString(record.Cycle) || !keyPattern.MatchString(record.OperationID) || !validSource(record.Manifest) || issue.Author.Validate() != nil || issue.URL != fmt.Sprintf("https://github.com/%s/%s/issues/%d", anchor.Repository.Owner, anchor.Repository.Name, issue.Number) {
+		return record, ErrBlocked
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return record, ErrBlocked
+	}
+	canonical, err := protocol.CanonicalJSON(encoded)
+	if err != nil {
+		return record, ErrBlocked
+	}
+	body := ControlMarker + " " + string(canonical)
+	if *issue.Content.Body != body || issue.Content.BodySHA256 != protocol.SHA256([]byte(body)) {
+		return record, ErrBlocked
+	}
+	manifest := current
+	if record.Manifest != anchor.Manifest {
+		blob, err := e.remote.ReadSource(ctx, record.Manifest)
+		if err != nil || !matchesBlob(blob, record.Manifest) {
+			return record, ErrBlocked
+		}
+		manifest, err = DecodeManifest(blob.Bytes)
+		if err != nil {
+			return record, ErrBlocked
+		}
+	}
+	if manifest.Repository != record.Repository || manifest.Cycle != record.Cycle || manifest.OperationID != record.OperationID || !sameIdentity(issue.Author, manifest.Policy.Roles.Controller) {
+		return record, ErrBlocked
+	}
+	return record, nil
 }
 
 func decodeControl(body string, out *ControlRecord) error {

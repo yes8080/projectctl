@@ -3,6 +3,7 @@ package startup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -57,6 +58,7 @@ func TestControlDiscoveryAndRemoteDrift(t *testing.T) {
 			other.Number++
 			other.DatabaseID++
 			other.NodeID += "other"
+			other.URL = fmt.Sprintf("https://github.com/octo/pipeline/issues/%d", other.Number)
 			f.issues = append(f.issues, other)
 		}},
 		{"same native object repeated", "control_native_identity_conflict", func(f *fakeRemote, _ Anchor) { f.issues = append(f.issues, f.issues[0]) }},

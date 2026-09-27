@@ -46,8 +46,13 @@ branch/tag resolution, symlink, submodule or cached content substitutes for it.
 Controller, complete Issues and current capabilities. Zero active marked Issues
 means `bootstrap_required`, not permission to POST. Exactly one must match native
 identity, author, exact body/digest and the expected cycle/operation/anchor. More
-than one, even a seemingly newer one, is a conflict. A closed matching cycle does
-not silently start over. Edited, inaccessible, malformed and conflicting facts
+than one, even a seemingly newer one, is a conflict. Every visible marked Issue
+is strictly validated before open/closed classification. A closed record is
+excluded only when its exact pinned manifest confirms a different cycle and
+operation in this repository, with its own historical Controller as author.
+Malformed, edited or inaccessible history blocks even beside a valid open Issue;
+historical host readiness and historical input files are not re-probed. A closed
+matching cycle or operation does not silently start over. Conflicting facts
 block; an unobserved deleted/recreated history cannot be proved from absent data.
 
 `Initialize` can select an existing exact Issue without a permit. First creation
