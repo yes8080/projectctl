@@ -95,6 +95,40 @@ func writeRequest(action Action) Request {
 	return r
 }
 
+// A fixture Controller emits this event once. This is not a production source
+// implementation and must not be replaced by "re-read the latest run".
+func (f *writeFixture) freshAllocation(t *testing.T) FreshAllocationSource {
+	t.Helper()
+	var consumed atomic.Bool
+	return func(_ context.Context, intent Intent, author protocol.GitHubIdentity) (protocol.VerifiedRecord, error) {
+		if !consumed.CompareAndSwap(false, true) {
+			return protocol.VerifiedRecord{}, ErrDenied
+		}
+		_, input := recordNative(t, gatewayContract(), 31)
+		run := &protocol.Run{
+			Envelope: protocol.Envelope{Schema: protocol.Schema, Kind: protocol.KindRun, Project: intent.Project, Subject: protocol.Subject{Issue: 2}, OperationID: "allocate-" + intent.OperationID, Version: 1},
+			Role:     protocol.RolePublisher, AgentInstance: "fixture-controller", Host: "test", Inputs: []protocol.Reference{input}, InputSHA256: intent.RequestSHA256,
+			AssignmentGeneration: 1, Attempt: 1,
+			Budget: protocol.Budget{MaxAgentRuns: 10, MaxRunSeconds: 60, MaxWallSeconds: 600, MaxDesignRounds: 2, MaxPlanningRounds: 2, MaxImplementationRounds: 3, Currency: "USD"},
+		}
+		f.mu.Lock()
+		id := int64(900 + len(f.comments[2]))
+		native, ref := recordNative(t, run, id)
+		f.comments[2] = append(f.comments[2], native)
+		f.mu.Unlock()
+		return protocol.VerifyGitHubRecord(protocol.GitHubObservation{Project: intent.Project, Kind: ref.Kind, DatabaseID: ref.DatabaseID, NodeID: ref.NodeID, URL: ref.URL, Author: author, Body: native["body"].(string)}, ref)
+	}
+}
+
+func (f *writeFixture) applyFirst(t *testing.T, g *Gateway, request Request) (Outcome, error) {
+	t.Helper()
+	admission, err := g.AdmitFirstCreate(context.Background(), request, f.freshAllocation(t))
+	if err != nil {
+		return Outcome{}, err
+	}
+	return g.ApplyFirst(context.Background(), request, admission)
+}
+
 func (f *writeFixture) handle(t *testing.T, w http.ResponseWriter, r *http.Request) {
 	t.Helper()
 	f.mu.Lock()
@@ -128,6 +162,17 @@ func (f *writeFixture) handle(t *testing.T, w http.ResponseWriter, r *http.Reque
 				values = append(values, f.issues[n])
 			}
 			testServerFixtureJSON(t, w, values)
+		case strings.HasPrefix(path, "/issues/comments/"):
+			id, _ := strconv.ParseInt(strings.TrimPrefix(path, "/issues/comments/"), 10, 64)
+			for _, comments := range f.comments {
+				for _, item := range comments {
+					if item["id"] == id {
+						testServerFixtureJSON(t, w, item)
+						return
+					}
+				}
+			}
+			http.NotFound(w, r)
 		case strings.HasSuffix(path, "/comments"):
 			n, _ := strconv.ParseInt(strings.Split(path, "/")[2], 10, 64)
 			items := f.comments[n]
@@ -249,7 +294,7 @@ func TestScopedWritesAreRemoteIdempotent(t *testing.T) {
 			f := newWriteFixture(t)
 			g := f.gateway(t, nil)
 			request := writeRequest(action)
-			result, err := g.Apply(context.Background(), request)
+			result, err := f.applyFirst(t, g, request)
 			if err != nil || result.State != "applied" || result.Intent == nil {
 				t.Fatalf("apply: %#v %v", result, err)
 			}
@@ -316,7 +361,7 @@ func TestTimeoutReconciliationNeverBlindlyRetries(t *testing.T) {
 			})
 			g := f.gateway(t, transport)
 			request := writeRequest(CreateIssue)
-			result, err := g.Apply(context.Background(), request)
+			result, err := f.applyFirst(t, g, request)
 			if save {
 				if err != nil || result.State != "reconciled" || result.Issue == nil {
 					t.Fatalf("saved timeout not recovered: %#v %v", result, err)
@@ -344,7 +389,7 @@ func TestDuplicateRemoteObjectsFailClosed(t *testing.T) {
 			f := newWriteFixture(t)
 			f.duplicateEffect = true
 			g := f.gateway(t, nil)
-			if _, err := g.Apply(context.Background(), writeRequest(action)); !errors.Is(err, ErrConflict) {
+			if _, err := f.applyFirst(t, g, writeRequest(action)); !errors.Is(err, ErrConflict) {
 				t.Fatalf("duplicate accepted: %v", err)
 			}
 		})
@@ -353,7 +398,7 @@ func TestDuplicateRemoteObjectsFailClosed(t *testing.T) {
 		f := newWriteFixture(t)
 		f.duplicateIntent = true
 		g := f.gateway(t, nil)
-		if _, err := g.Apply(context.Background(), writeRequest(CreateIssue)); !errors.Is(err, ErrConflict) {
+		if _, err := f.applyFirst(t, g, writeRequest(CreateIssue)); !errors.Is(err, ErrConflict) {
 			t.Fatal(err)
 		}
 		f.mu.Lock()
@@ -389,7 +434,7 @@ func TestWriteScopeAndNativePublisherBinding(t *testing.T) {
 			g := f.gateway(t, nil)
 			r := writeRequest(CreateIssue)
 			test.change(g, &r)
-			if _, err := g.Apply(context.Background(), r); err == nil {
+			if _, err := f.applyFirst(t, g, r); err == nil {
 				t.Fatal("unscoped write accepted")
 			}
 			f.mu.Lock()
@@ -405,7 +450,7 @@ func TestChangedRequestAndDeletedIntentDoNotCreateAgain(t *testing.T) {
 	f := newWriteFixture(t)
 	g := f.gateway(t, nil)
 	request := writeRequest(CreateIssue)
-	if _, err := g.Apply(context.Background(), request); err != nil {
+	if _, err := f.applyFirst(t, g, request); err != nil {
 		t.Fatal(err)
 	}
 	changed := request
@@ -444,7 +489,7 @@ func TestIntentTimeoutStopsBeforeEffectAndSurvivesRestart(t *testing.T) {
 	})
 	g := f.gateway(t, transport)
 	request := writeRequest(CreateIssue)
-	result, err := g.Apply(context.Background(), request)
+	result, err := f.applyFirst(t, g, request)
 	if !errors.Is(err, ErrUncertain) || result.Intent == nil {
 		t.Fatalf("intent timeout not reconciled: %#v %v", result, err)
 	}
@@ -478,7 +523,7 @@ func TestRemoteOperationAuthorAndContentDriftBlock(t *testing.T) {
 			f := newWriteFixture(t)
 			g := f.gateway(t, nil)
 			request := writeRequest(CreateIssue)
-			result, err := g.Apply(context.Background(), request)
+			result, err := f.applyFirst(t, g, request)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -488,7 +533,11 @@ func TestRemoteOperationAuthorAndContentDriftBlock(t *testing.T) {
 			other.NodeID = "U_90"
 			switch mode {
 			case "intent author":
-				f.comments[2][0]["user"] = other
+				for _, comment := range f.comments[2] {
+					if strings.Contains(comment["body"].(string), operationMarker) {
+						comment["user"] = other
+					}
+				}
 			case "object author":
 				f.issues[result.Issue.Number]["user"] = other
 			case "object body":
@@ -518,7 +567,7 @@ func TestAuthorizerCannotMutatePreparedResourceScope(t *testing.T) {
 		intent.Related.Number = 999
 		return nil
 	}
-	result, err := g.Apply(context.Background(), writeRequest(CreateIssue))
+	result, err := f.applyFirst(t, g, writeRequest(CreateIssue))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,6 +579,11 @@ func TestAuthorizerCannotMutatePreparedResourceScope(t *testing.T) {
 func TestOneWriteOperationPinsCredentialIdentity(t *testing.T) {
 	f := newWriteFixture(t)
 	g := f.gateway(t, nil)
+	request := writeRequest(CreateIssue)
+	admission, err := g.AdmitFirstCreate(context.Background(), request, f.freshAllocation(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	g.token = func(context.Context) (string, error) {
 		calls++
@@ -538,7 +592,7 @@ func TestOneWriteOperationPinsCredentialIdentity(t *testing.T) {
 		}
 		return "different-account-token", nil
 	}
-	if _, err := g.Apply(context.Background(), writeRequest(CreateIssue)); err != nil {
+	if _, err := g.ApplyFirst(context.Background(), request, admission); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

@@ -75,7 +75,7 @@ documented policy; reading them as content does not activate them.
 
 ## Explicit writes and remote recovery
 
-The narrow `Apply(Request)` supports only:
+The narrow `ApplyFirst(Request, FirstCreateAdmission)` supports only:
 
 - Create an Issue, optionally assigned to one pinned native Milestone.
 - Create a Milestone.
@@ -89,6 +89,38 @@ authorization callback receives the verified publisher, precise resources and a
 canonical request digest; returning success is a trusted policy decision, not an
 authorization string supplied by an Agent.
 
+`Apply` and `Reconcile` are **read-only recovery APIs**. Even a complete empty
+collection cannot prove that an earlier accepted intent is not temporarily
+invisible, so neither API creates an intent. `New` never grants first-write
+eligibility, and ordinary `Authorize` success is not a first-create admission.
+
+First creation additionally requires explicit `AdmitFirstCreate` with a trusted
+Controller `FreshAllocationSource`. This source must consume a **new allocation
+event**, not replay a stored run, perform a repeatable permission check, or infer
+novelty from empty GitHub lists. It supplies a verified native publisher Run whose
+`input_sha256` is the exact request digest. The Gateway re-reads that precise Run,
+checks the publisher, role, positive assignment generation/attempt and digest,
+then issues an opaque `FirstCreateAdmission`. Before the intent POST it checks
+the Run again. The Run reference pins the authorization generation and content.
+
+Admissions cannot be JSON encoded/restored; their zero value is unusable. Copies
+share one atomic consumption flag. A valid `ApplyFirst` attempt consumes the flag
+even if inspection fails or encounters an existing intent. This prevents an
+unused permit from becoming writable later when a previously observed intent
+temporarily disappears. Only that invocation may dispatch one intent and one
+effect; failed/canceled calls never refund authority. A fresh Gateway or process
+without a new allocation event only reconciles. Completed operations remain
+recoverable without any admission.
+
+The Controller allocation source is an explicit trusted integration boundary,
+not implemented by this Gateway. It must enforce fresh-event uniqueness and
+policy across restarts; rebuilding a permissive callback around an old Run is
+misuse, not recovery. The package has no automatic allocation source. Retrying
+an uncertain operation requires separately recorded, explicit Controller
+authorization/new generation and intervention policy; incrementing a local
+generation or observing an empty list cannot authorize it. No exactly-once or
+distributed-lock guarantee is claimed.
+
 Each new operation first registers a comment on the specified control Issue under
 the separate `projectctl.operation/v1` schema / `projectctl:operation:v1` marker.
 The journal contains `kind`, `project`, `subject`, `operation_id`, exact resource
@@ -97,14 +129,15 @@ Created Issue/Milestone bodies contain an operation binding; record comments car
 their protocol operation ID; native dependencies are matched by exact endpoints.
 The journal author and result author must match the verified publisher.
 
-After the intent is observed uniquely, at most one effect request is sent. Both
+After the newly dispatched intent is observed uniquely, at most one effect request is sent. Both
 successful responses and failed/timeout responses are followed by full remote
 reconciliation. Observed exact results can complete despite a lost response.
 Duplicate intents/objects, changed payloads, wrong authors or changed native
 membership fail closed. Completed operations recover with a fresh Gateway and no
-local files. `Reconcile` performs reads only; it never creates a missing object.
+local files. Both recovery APIs perform reads only; they never create a missing object.
 
-An existing intent with an absent/unconfirmed effect returns `ErrUncertain` and
+An existing intent with an absent/unconfirmed effect, or an absent/invisible
+intent without a fresh unspent admission, returns `ErrUncertain` and
 **does not automatically retry**, including after restart. A fresh bounded read-only
 context (30 seconds) reconciles a canceled/failed write; no new effect is dispatched
 after cancellation. GitHub has no general idempotency key or atomic multi-object
@@ -135,8 +168,9 @@ go test -race ./internal/pipeline/github/...
 ```
 
 Tests use loopback HTTP fixtures and synthetic tokens only, including pagination,
-identity/content drift, transitive references, duplicate objects and lost-response
-recovery. No test writes to live GitHub. Contract #5 still requires a live smoke test
+identity/content drift, transitive references, duplicate objects, one-shot
+admissions and accepted-but-invisible intent/effect lost-response recovery. No
+test writes to live GitHub. Contract #5 still requires a live smoke test
 before M1 completion; that is not claimed by these unit tests or by this Developer.
 
 Official API references used:

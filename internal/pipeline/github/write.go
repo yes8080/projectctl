@@ -473,10 +473,17 @@ func (g *Gateway) Reconcile(ctx context.Context, request Request) (Outcome, erro
 	return result, nil
 }
 
-// Apply registers a durable GitHub intent, then sends at most one effect request.
-// An existing intent with an unconfirmed result is NEVER retried automatically,
-// including after restart. The Controller must serialize its publisher channel.
+// Apply is a recovery entry point and never sends a POST. In particular, an
+// empty list cannot distinguish a new operation from a temporarily invisible
+// accepted intent. First creation requires ApplyFirst and a fresh admission.
 func (g *Gateway) Apply(ctx context.Context, request Request) (Outcome, error) {
+	return g.Reconcile(ctx, request)
+}
+
+// ApplyFirst may register an intent and send one effect only with an unspent
+// admission from a trusted Controller fresh-allocation event. Existing intent
+// and unknown outcome paths remain reconciliation-only, even with admission.
+func (g *Gateway) ApplyFirst(ctx context.Context, request Request, admission FirstCreateAdmission) (Outcome, error) {
 	if g.authorize == nil {
 		return Outcome{}, ErrDenied
 	}
@@ -489,6 +496,10 @@ func (g *Gateway) Apply(ctx context.Context, request Request) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
+	if err := admission.matches(g, p); err != nil {
+		return Outcome{}, err
+	}
+	fresh := admission.claim()
 	result, found, err := g.inspect(ctx, p)
 	if err != nil {
 		return result, err
@@ -496,8 +507,13 @@ func (g *Gateway) Apply(ctx context.Context, request Request) (Outcome, error) {
 	if found && result.Intent != nil {
 		return result, nil
 	}
-	if result.Intent != nil {
+	if result.Intent != nil || !fresh {
 		return result, ErrUncertain
+	}
+	// The shared capability was already consumed before inspection. Revalidate
+	// its remote authorization before dispatch; failure cannot restore it.
+	if err := admission.verify(ctx, g); err != nil {
+		return result, err
 	}
 	_, _, sendErr := g.request(ctx, http.MethodPost, g.endpoint(fmt.Sprintf("%s/issues/%d/comments", g.repoPath(), p.intent.Control.Number)), struct {
 		Body string `json:"body"`
