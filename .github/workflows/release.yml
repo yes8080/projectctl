@@ -1,0 +1,96 @@
+name: Draft release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Go 1.22)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      CGO_ENABLED: "0"
+      GOTOOLCHAIN: local
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: false
+      - run: go test ./...
+      - run: go vet ./...
+
+  release:
+    name: Prepare draft assets
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      CGO_ENABLED: "0"
+      GOTOOLCHAIN: local
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: false
+      - name: Build all six targets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: go run ./tools/release --version "$RELEASE_TAG"
+      - name: Check release manifest
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - name: Create or update draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A failed listing aborts instead of being mistaken for a missing release.
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[] | [.tag_name, (.draft | tostring)] | @tsv' \
+            > "$RUNNER_TEMP/projectctl-releases.tsv"
+          state=$(awk -F '\t' -v tag="$RELEASE_TAG" '$1 == tag { print $2 }' "$RUNNER_TEMP/projectctl-releases.tsv")
+          case "$state" in
+            "") gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes ;;
+            true) ;;
+            false) echo "Refusing to modify an already published release." >&2; exit 1 ;;
+            *) echo "Ambiguous release state; refusing to write." >&2; exit 1 ;;
+          esac
+          # Recheck just before writing; maintainers must not publish concurrently.
+          if [[ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')" != true ]]; then
+            echo "Release is no longer a draft; refusing asset updates." >&2
+            exit 1
+          fi
+          shopt -s nullglob
+          assets=(dist/projectctl_"$RELEASE_TAG"_*.zip dist/SHA256SUMS)
+          if [[ "${#assets[@]}" -ne 7 ]]; then
+            echo "Expected six archives plus SHA256SUMS." >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"

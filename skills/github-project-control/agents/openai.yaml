@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Project Control"
+  short_description: "从规范、任务账本和独立验收证据恢复并推进多 Agent 项目开发"
+  default_prompt: "使用 $github-project-control 从项目规范与账本恢复状态，规划并推进下一项可独立验收的任务。"

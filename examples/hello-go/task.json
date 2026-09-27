@@ -1,0 +1,19 @@
+{
+  "id": "TASK-HELLO",
+  "title": "Implement the greeting contract",
+  "goal": "Create Greet(name string) string in package greeting using the approved source.",
+  "requirements": ["REQ-HELLO"],
+  "constraints": [],
+  "decisions": [],
+  "sources": [],
+  "scope": ["greeting"],
+  "dependencies": [],
+  "acceptance": [
+    {"id": "AC-NAME", "description": "Trim surrounding whitespace and preserve the provided Unicode name."},
+    {"id": "AC-DEFAULT", "description": "Use world for empty or whitespace-only input."}
+  ],
+  "verification": [{"id": "CHECK-GO", "argv": ["go", "test", "./..."]}],
+  "priority": 10,
+  "non_goals": ["HTTP server", "deployment"],
+  "files": ["greet.go", "greet_test.go", "requirements.md"]
+}

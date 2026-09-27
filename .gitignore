@@ -1,0 +1,7 @@
+/dist/
+__pycache__/
+*.pyc
+.DS_Store
+# Local dogfood installation; distributable skill sources live in skills/.
+/.project-control/
+/.agents/skills/github-project-control/
