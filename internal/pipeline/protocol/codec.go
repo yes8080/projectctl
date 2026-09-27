@@ -43,6 +43,15 @@ func Decode(data []byte) (Record, error) {
 		record = &Evidence{}
 	case string(KindAcceptance):
 		record = &Acceptance{}
+	case string(KindPlanAcceptance):
+		record = &PlanAcceptance{}
+		if subject, ok := object["subject"].(map[string]any); ok {
+			for key := range subject {
+				if key != "milestone" {
+					return nil, fmt.Errorf("plan acceptance subject may only identify its milestone")
+				}
+			}
+		}
 	case string(KindDelivery):
 		record = &Delivery{}
 	case string(KindApproval):
@@ -65,7 +74,7 @@ func Decode(data []byte) (Record, error) {
 // Encode validates a typed record and emits canonical JSON, without a newline.
 func Encode(record Record) ([]byte, error) {
 	switch record.(type) {
-	case *Baseline, *Plan, *Contract, *Run, *Evidence, *Acceptance, *Delivery, *Approval:
+	case *Baseline, *Plan, *Contract, *Run, *Evidence, *Acceptance, *PlanAcceptance, *Delivery, *Approval:
 	default:
 		return nil, fmt.Errorf("unsupported record type")
 	}

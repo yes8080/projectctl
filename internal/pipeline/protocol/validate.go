@@ -254,8 +254,13 @@ func (r *Contract) validate() error {
 	if err := recordURL(r.Project, "issue_comment", approvalID, b.Approval); err != nil {
 		return err
 	}
-	if u.Path != fmt.Sprintf("/%s/%s/pull/%d", r.Project.Owner, r.Project.Repo, b.PullRequest) {
-		return fmt.Errorf("baseline approval must reference design PR")
+	// Bootstrap contracts used a design-PR comment; formal Approval records
+	// live on the pinned control Issue. Both remain navigation links, not proof
+	// of authorization, and no other native container is accepted.
+	designPR := fmt.Sprintf("/%s/%s/pull/%d", r.Project.Owner, r.Project.Repo, b.PullRequest)
+	controlIssue := fmt.Sprintf("/%s/%s/issues/%d", r.Project.Owner, r.Project.Repo, r.Project.ControlIssue)
+	if u.Path != designPR && u.Path != controlIssue {
+		return fmt.Errorf("baseline approval must reference design PR or control Issue")
 	}
 	for field, s := range map[string]string{"key": r.Key, "goal": r.Goal} {
 		if err := required(s, field); err != nil {
@@ -401,23 +406,40 @@ func (r *Acceptance) validate() error {
 	if err := refs(r.Project, r.Run); err != nil {
 		return err
 	}
-	if len(r.Assessments) == 0 || (r.Decision != "PASS" && r.Decision != "FAIL") || strings.TrimSpace(r.Reason) == "" || r.UnresolvedFindings == nil {
+	return validateAssessments(r.Project, r.Assessments, r.UnresolvedFindings, r.Decision, r.Reason)
+}
+
+func (r *PlanAcceptance) validate() error {
+	if err := r.Envelope.validateKind(KindPlanAcceptance); err != nil {
+		return err
+	}
+	if r.Subject.Milestone <= 0 {
+		return fmt.Errorf("plan acceptance requires a milestone subject")
+	}
+	if err := refs(r.Project, r.Candidate, r.Run); err != nil {
+		return err
+	}
+	return validateAssessments(r.Project, r.Assessments, r.UnresolvedFindings, r.Decision, r.Reason)
+}
+
+func validateAssessments(project Project, assessments []Assessment, findings []Reference, decision, reason string) error {
+	if len(assessments) == 0 || (decision != "PASS" && decision != "FAIL") || strings.TrimSpace(reason) == "" || findings == nil {
 		return fmt.Errorf("invalid acceptance decision")
 	}
-	if r.Decision == "PASS" && len(r.UnresolvedFindings) != 0 {
+	if decision == "PASS" && len(findings) != 0 {
 		return fmt.Errorf("PASS has unresolved findings")
 	}
 	seen := map[string]bool{}
-	for _, ac := range r.Assessments {
-		if !operationPattern.MatchString(ac.CriterionID) || seen[ac.CriterionID] || strings.TrimSpace(ac.Reason) == "" || len(ac.Evidence) == 0 || (ac.Result != "PASS" && ac.Result != "FAIL") || (r.Decision == "PASS" && ac.Result != "PASS") {
+	for _, ac := range assessments {
+		if !operationPattern.MatchString(ac.CriterionID) || seen[ac.CriterionID] || strings.TrimSpace(ac.Reason) == "" || len(ac.Evidence) == 0 || (ac.Result != "PASS" && ac.Result != "FAIL") || (decision == "PASS" && ac.Result != "PASS") {
 			return fmt.Errorf("invalid criterion assessment")
 		}
 		seen[ac.CriterionID] = true
-		if err := refs(r.Project, ac.Evidence...); err != nil {
+		if err := refs(project, ac.Evidence...); err != nil {
 			return err
 		}
 	}
-	return refs(r.Project, r.UnresolvedFindings...)
+	return refs(project, findings...)
 }
 
 func (r *Delivery) validate() error {

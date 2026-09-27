@@ -8,14 +8,15 @@ const (
 type Kind string
 
 const (
-	KindBaseline   Kind = "baseline"
-	KindPlan       Kind = "plan"
-	KindContract   Kind = "contract"
-	KindRun        Kind = "run"
-	KindEvidence   Kind = "evidence"
-	KindAcceptance Kind = "acceptance"
-	KindDelivery   Kind = "delivery"
-	KindApproval   Kind = "approval"
+	KindBaseline       Kind = "baseline"
+	KindPlan           Kind = "plan"
+	KindContract       Kind = "contract"
+	KindRun            Kind = "run"
+	KindEvidence       Kind = "evidence"
+	KindAcceptance     Kind = "acceptance"
+	KindPlanAcceptance Kind = "plan_acceptance"
+	KindDelivery       Kind = "delivery"
+	KindApproval       Kind = "approval"
 )
 
 // Record is a closed union. Each kind has exact top-level fields; there is no
@@ -214,6 +215,19 @@ type Assessment struct {
 type Acceptance struct {
 	Envelope
 	Binding            Binding      `json:"binding"`
+	Run                Reference    `json:"run"`
+	Assessments        []Assessment `json:"assessments"`
+	UnresolvedFindings []Reference  `json:"unresolved_findings"`
+	Decision           string       `json:"decision"`
+	Reason             string       `json:"reason"`
+}
+
+// PlanAcceptance reviews an exact milestone Plan, without borrowing a PR
+// binding. Assessment evidence identifies the facts reviewed; the activation
+// gate owns the required criteria, independent identities and Run inputs.
+type PlanAcceptance struct {
+	Envelope
+	Candidate          Reference    `json:"candidate"`
 	Run                Reference    `json:"run"`
 	Assessments        []Assessment `json:"assessments"`
 	UnresolvedFindings []Reference  `json:"unresolved_findings"`

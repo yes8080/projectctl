@@ -123,6 +123,19 @@ func (g *Gateway) ResolveApproved(ctx context.Context, approvalRef protocol.Refe
 				return none, fmt.Errorf("reference target has wrong record kind; want %s", typed.kind)
 			}
 		}
+		if acceptance, ok := record.(*protocol.PlanAcceptance); ok {
+			candidate, err := visit(acceptance.Candidate)
+			if err != nil {
+				return none, err
+			}
+			value, err := candidate.Record()
+			if err != nil {
+				return none, err
+			}
+			if value.Header().Subject != acceptance.Subject {
+				return none, fmt.Errorf("plan acceptance candidate belongs to another milestone")
+			}
+		}
 		if decision, ok := record.(*protocol.Approval); ok {
 			candidate, err := visit(decision.Candidate)
 			if err != nil {
@@ -219,6 +232,12 @@ func recordReferences(record protocol.Record) []protocol.Reference {
 			result = append(result, ac.Evidence...)
 		}
 		result = append(result, r.UnresolvedFindings...)
+	case *protocol.PlanAcceptance:
+		result = append(result, r.Candidate, r.Run)
+		for _, ac := range r.Assessments {
+			result = append(result, ac.Evidence...)
+		}
+		result = append(result, r.UnresolvedFindings...)
 	case *protocol.Delivery:
 		result = append(result, r.Plan, r.BugGate, r.Cleanup)
 		result = append(result, r.IntegrationEvidence...)
@@ -257,6 +276,8 @@ func typedReferences(record protocol.Record) []typedReference {
 				result = append(result, typedReference{ref, protocol.KindEvidence})
 			}
 		}
+	case *protocol.PlanAcceptance:
+		result = append(result, typedReference{r.Candidate, protocol.KindPlan}, typedReference{r.Run, protocol.KindRun})
 	case *protocol.Delivery:
 		result = append(result, typedReference{r.Plan, protocol.KindPlan})
 	}
