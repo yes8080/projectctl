@@ -66,12 +66,22 @@ checks declared reference target types, and verifies native Issue IDs for plan
 members. It re-reads the graph before returning to catch edits during traversal.
 This is not an atomic GitHub snapshot; the Controller must revalidate before use.
 
-Approval supersession, source Git blobs/trees, native topology digests, budget
+Approval supersession, native topology digests, budget
 policy, design/AC completeness, review outcome semantics and launch/merge gates
 remain the later Controller/Gate slices' responsibilities. Contract bootstrap
 navigation URLs/parent hints are not silently upgraded into strong authorization
 references. Unsupported bootstrap record kinds remain fail-closed under #4's
 documented policy; reading them as content does not activate them.
+
+Issue #6 adds the read-only `ReadSource` boundary for startup inputs: a full Git
+commit SHA, exact regular-file path and raw SHA-256 are resolved through native
+commit/tree/blob objects in this Gateway's repository. No branch/tag, symlink,
+submodule, recursive/truncated tree, local checkout or cached bytes can substitute.
+Blob SHA-1 framing and content SHA-256 are verified; native authenticated API
+metadata remains the trust boundary for commit/tree linkage. Files are bounded
+to 4 MiB, paths to 4 KiB/64 segments, and the full read to 64 MiB. Git data uses
+the JSON media type through the same credential/origin/error protections. This
+does not add a bootstrap writer or remove `New`'s existing control-Issue requirement.
 
 ## Explicit writes and remote recovery
 

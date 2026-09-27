@@ -124,6 +124,12 @@ func (g *Gateway) repoPath() string { return "/repos/" + g.project.Owner + "/" +
 func (g *Gateway) endpoint(path string) *url.URL { u := *g.base; u.Path = path; return &u }
 
 func (g *Gateway) request(ctx context.Context, method string, u *url.URL, payload any) ([]byte, http.Header, error) {
+	return g.requestWithAccept(ctx, method, u, payload, "application/vnd.github.raw+json")
+}
+
+// Git data blobs require JSON rather than the raw Markdown media type used by
+// Issue/comment endpoints. All request safety and credential handling is shared.
+func (g *Gateway) requestWithAccept(ctx context.Context, method string, u *url.URL, payload any, accept string) ([]byte, http.Header, error) {
 	if u.Scheme != g.base.Scheme || u.Host != g.base.Host || u.User != nil || u.Fragment != "" || u.RawPath != "" {
 		return nil, nil, fmt.Errorf("out-of-scope HTTP origin")
 	}
@@ -148,7 +154,7 @@ func (g *Gateway) request(ctx context.Context, method string, u *url.URL, payloa
 		return nil, nil, fmt.Errorf("credential provider unavailable")
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github.raw+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
