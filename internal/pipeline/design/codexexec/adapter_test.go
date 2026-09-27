@@ -242,7 +242,7 @@ func TestAdapterRejectsRequestsBeforeExecution(t *testing.T) {
 }
 
 func TestAdapterRequiresTrustedAbsolutePinnedBinary(t *testing.T) {
-	for _, config := range []Config{{Binary: "codex"}, {Binary: t.TempDir()}, {Binary: filepath.Join(t.TempDir(), "missing")}, {Model: "bad\nmodel"}} {
+	for _, config := range []Config{{Binary: "codex", Model: "test-model"}, {Binary: t.TempDir(), Model: "test-model"}, {Binary: filepath.Join(t.TempDir(), "missing"), Model: "test-model"}, {Model: "bad\nmodel"}} {
 		if _, err := New(config); err == nil {
 			t.Fatal("invalid executable configuration accepted")
 		}
@@ -259,7 +259,7 @@ func TestAdapterRequiresTrustedAbsolutePinnedBinary(t *testing.T) {
 	if err := os.WriteFile(wrong, data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(Config{Binary: wrong}); !errors.Is(err, ErrRuntime) {
+	if _, err := New(Config{Binary: wrong, Model: "test-model"}); !errors.Is(err, ErrRuntime) {
 		t.Fatal("unexpected CLI version accepted")
 	}
 }
@@ -272,8 +272,8 @@ func TestEnvironmentAllowlist(t *testing.T) {
 	}
 }
 
-// Opt-in only. The developer orchestrator runs this once using existing ChatGPT
-// entitlement; default package tests never start a real model or change auth.
+// Opt-in only with a separately authorized, explicitly selected model. Default
+// package tests never start a real model, choose a fallback, or change auth.
 func TestCodexExecIntegration(t *testing.T) {
 	if os.Getenv("PROJECTCTL_CODEXEXEC_LIVE") != "1" {
 		t.Skip("explicit opt-in required; uses existing ChatGPT entitlement")

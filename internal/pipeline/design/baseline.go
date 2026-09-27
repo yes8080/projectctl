@@ -107,6 +107,11 @@ func (e *Engine) freeze(ctx context.Context, r BaselineRequest) (protocol.Baseli
 		}
 	}
 	var runs []*protocol.Run
+	// Current native branch/merge facts are checked below. Run input identities
+	// must instead use the exact pre-merge base from the reviewed binding, through
+	// the same builder used by Admit and Execute (never the post-merge Request).
+	runRequest := r.Request
+	runRequest.ExpectedTargetSHA = r.Binding.BaseSHA
 	for i, ref := range []protocol.Reference{ev.Run, rv.Run} {
 		vr, err := e.remote.FetchRecord(ctx, ref)
 		if err != nil || protocol.Authorize(vr, p.policy, protocol.RoleController) != nil {
@@ -123,8 +128,11 @@ func (e *Engine) freeze(ctx context.Context, r BaselineRequest) (protocol.Baseli
 		role := protocol.RoleDesigner
 		if i == 1 {
 			role = protocol.RoleDesignReviewer
+			runRequest.Candidate, runRequest.AuthorRun = &r.Candidate, &ev.Run
 		}
-		if run.Role != role {
+		runRequest.Role = role
+		input, err := e.prepareInputs(ctx, runRequest, p)
+		if err != nil || !runMatchesInput(run, runRequest, input.digest) {
 			return zero, ErrBlocked
 		}
 		runs = append(runs, run)

@@ -206,6 +206,16 @@ func (e *Engine) prepareMode(ctx context.Context, r Request, merged bool) (prepa
 	if err != nil || branch.SHA != r.ExpectedTargetSHA {
 		return p, ErrBlocked
 	}
+	return e.prepareInputs(ctx, r, p)
+}
+
+// prepareInputs is the shared canonical input identity builder for admission,
+// execution and post-merge freezing. It does not resolve a mutable branch:
+// prepareMode checks the current branch separately, and Freeze reconstructs the
+// reviewed pre-merge Request using its already-verified Binding.BaseSHA.
+func (e *Engine) prepareInputs(ctx context.Context, r Request, p prepared) (prepared, error) {
+	m := p.manifest
+	p.author = nil
 	type input struct {
 		Reference protocol.SourceReference `json:"reference"`
 		Content   string                   `json:"content"`
@@ -247,7 +257,14 @@ func (e *Engine) prepareMode(ctx context.Context, r Request, merged bool) (prepa
 			return p, ErrBlocked
 		}
 		run, ok := value.(*protocol.Run)
-		if !ok || run.Role != protocol.RoleDesigner || run.Subject.Issue != r.Issue.Number {
+		if !ok {
+			return p, ErrBlocked
+		}
+		authorRequest := r
+		authorRequest.Role = protocol.RoleDesigner
+		authorRequest.Candidate, authorRequest.AuthorRun = nil, nil
+		authorInput, err := e.prepareInputs(ctx, authorRequest, p)
+		if err != nil || !runMatchesInput(run, authorRequest, authorInput.digest) {
 			return p, ErrBlocked
 		}
 		p.author = run
@@ -267,6 +284,31 @@ func (e *Engine) prepareMode(ctx context.Context, r Request, merged bool) (prepa
 		SchemaSHA256 string
 	}{r, p.prompt, protocol.SHA256(p.schema)})
 	return p, nil
+}
+
+// Run.Inputs is an exact ordered pin list, not an Agent-selected context list.
+// Source bytes, startup/policy version, role, candidate and pre-merge base are
+// additionally bound by the canonical Request/prompt/schema input digest.
+func runMatchesInput(run *protocol.Run, r Request, inputDigest string) bool {
+	if run.Project != r.Project || run.Subject != (protocol.Subject{Issue: r.Issue.Number}) || run.Role != r.Role || run.InputSHA256 != inputDigest {
+		return false
+	}
+	expected := []protocol.Reference{r.Contract}
+	if r.Role == protocol.RoleDesignReviewer {
+		if r.AuthorRun == nil {
+			return false
+		}
+		expected = append(expected, *r.AuthorRun)
+	}
+	if len(run.Inputs) != len(expected) {
+		return false
+	}
+	for i, ref := range expected {
+		if !sameRef(run.Inputs[i], ref) {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Engine) runs(ctx context.Context, r Request, p prepared, selected *protocol.Reference) (*protocol.Run, error) {
@@ -334,7 +376,7 @@ func (e *Engine) runs(ctx context.Context, r Request, p prepared, selected *prot
 		}
 		return nil, nil
 	}
-	if chosen == nil || chosen.Role != r.Role || chosen.InputSHA256 != p.digest || chosen.Attempt != rounds[r.Role] {
+	if chosen == nil || !runMatchesInput(chosen, r, p.digest) || chosen.Attempt != rounds[r.Role] {
 		return nil, ErrBlocked
 	}
 	if p.author != nil && chosen.AgentInstance == p.author.AgentInstance {

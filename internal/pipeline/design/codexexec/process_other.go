@@ -12,3 +12,8 @@ func configureProcess(cmd *exec.Cmd) {
 	// an additional host job-object boundary, not claimed by this adapter.
 	cmd.WaitDelay = time.Second
 }
+
+func runProcess(cmd *exec.Cmd) error {
+	configureProcess(cmd)
+	return cmd.Run()
+}

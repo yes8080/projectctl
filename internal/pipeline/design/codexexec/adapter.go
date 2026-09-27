@@ -35,11 +35,16 @@ var (
 	ErrRuntime = errors.New("Codex runtime unavailable or unsuccessful")
 	ErrLimit   = errors.New("Codex execution exceeded output bound")
 	ErrEvent   = errors.New("invalid or unsafe Codex runtime event stream")
+	// ErrContainment blocks retry and workspace cleanup: the trusted host must
+	// resolve an unconfirmed process-group shutdown before releasing resources.
+	ErrContainment = errors.New("Codex process containment unconfirmed; host intervention required")
 )
 
 type Config struct {
 	Binary string
-	Model  string
+	// Model is an explicit trusted Controller selection, never a CLI default or
+	// fallback. The Controller must check entitlement and tool-mode compatibility.
+	Model string
 }
 
 type Request struct {
@@ -66,7 +71,7 @@ func New(config Config) (*Adapter, error) {
 	if config.Binary == "" {
 		config.Binary = DefaultBinary
 	}
-	if !filepath.IsAbs(config.Binary) || strings.ContainsAny(config.Binary, "\x00\r\n") || len(config.Model) > 128 || (config.Model != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`).MatchString(config.Model)) {
+	if !filepath.IsAbs(config.Binary) || strings.ContainsAny(config.Binary, "\x00\r\n") || len(config.Model) == 0 || len(config.Model) > 128 || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`).MatchString(config.Model) {
 		return nil, ErrInvalid
 	}
 	info, err := os.Stat(config.Binary)
@@ -78,10 +83,12 @@ func New(config Config) (*Adapter, error) {
 	cmd := exec.CommandContext(ctx, config.Binary, "--version")
 	cmd.Dir = os.TempDir()
 	cmd.Env = allowedEnvironment(os.Environ())
-	configureProcess(cmd)
 	out, diagnostic := newBoundedWriter(4096, cancel), newBoundedWriter(maxStderr, cancel)
 	cmd.Stdout, cmd.Stderr = out, diagnostic
-	if err := cmd.Run(); err != nil || out.overflowed() || diagnostic.overflowed() || strings.TrimSpace(string(out.bytes())) != Version {
+	if err := runProcess(cmd); err != nil || out.overflowed() || diagnostic.overflowed() || strings.TrimSpace(string(out.bytes())) != Version {
+		if errors.Is(err, ErrContainment) {
+			return nil, ErrContainment
+		}
 		return nil, ErrRuntime
 	}
 	return &Adapter{binary: config.Binary, model: config.Model}, nil
@@ -112,14 +119,7 @@ func (a *Adapter) Run(ctx context.Context, request Request) (result Result, err 
 		return Result{}, ErrRuntime
 	}
 	workspace := filepath.Join(root, "workspace")
-	defer func() {
-		// Only this freshly allocated private directory is ever removed. Chmod
-		// permits cleanup of our read-only workspace on non-root Unix hosts.
-		_ = os.Chmod(workspace, 0700)
-		if cleanupErr := os.RemoveAll(root); cleanupErr != nil {
-			result, err = Result{}, ErrRuntime
-		}
-	}()
+	defer cleanupWorkspace(root, workspace, &result, &err)
 	if os.Mkdir(workspace, 0500) != nil {
 		return Result{}, ErrRuntime
 	}
@@ -131,10 +131,12 @@ func (a *Adapter) Run(ctx context.Context, request Request) (result Result, err 
 	cmd.Dir = workspace
 	cmd.Env = allowedEnvironment(os.Environ())
 	cmd.Stdin = strings.NewReader(request.Prompt)
-	configureProcess(cmd)
 	out, diagnostic := newBoundedWriter(maxStdout, cancel), newBoundedWriter(maxStderr, cancel)
 	cmd.Stdout, cmd.Stderr = out, diagnostic
-	runErr := cmd.Run()
+	runErr := runProcess(cmd)
+	if errors.Is(runErr, ErrContainment) {
+		return Result{}, ErrContainment
+	}
 	if out.overflowed() || diagnostic.overflowed() {
 		return Result{}, ErrLimit
 	}
@@ -147,9 +149,21 @@ func (a *Adapter) Run(ctx context.Context, request Request) (result Result, err 
 	return parseEvents(out.bytes())
 }
 
+func cleanupWorkspace(root, workspace string, result *Result, err *error) {
+	if errors.Is(*err, ErrContainment) {
+		return
+	}
+	// Only our freshly allocated directory is removed, after confirmed process
+	// shutdown. A containment failure leaves it intact for trusted host recovery.
+	_ = os.Chmod(workspace, 0700)
+	if cleanupErr := os.RemoveAll(root); cleanupErr != nil {
+		*result, *err = Result{}, ErrRuntime
+	}
+}
+
 func arguments(workspace, schema, model string) []string {
 	args := []string{"--no-daemon", "--ask-for-approval", "never", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "--json", "--color", "never", "--cd", workspace, "--output-schema", schema}
-	for _, config := range []string{`forced_login_method="chatgpt"`, `web_search="disabled"`, `project_doc_max_bytes=0`, `mcp_servers={}`, `shell_environment_policy.inherit="none"`, `shell_environment_policy.ignore_default_excludes=false`, `history.persistence="none"`} {
+	for _, config := range []string{`forced_login_method="chatgpt"`, `web_search="disabled"`, `project_doc_max_bytes=0`, `mcp_servers={}`, `shell_environment_policy.inherit="none"`, `shell_environment_policy.ignore_default_excludes=false`, `history.persistence="none"`, `suppress_unstable_features_warning=true`} {
 		args = append(args, "--config", config)
 	}
 	for _, feature := range []string{"shell_tool", "unified_exec", "shell_snapshot", "plugins", "apps", "hooks", "multi_agent", "browser_use", "computer_use", "code_mode", "code_mode_host", "remote_plugin", "image_generation", "view_image", "memories", "goals", "sleep_tool", "workspace_dependencies", "skill_search", "skill_mcp_dependency_install", "tool_suggest", "auth_elicitation", "in_app_browser"} {
@@ -157,9 +171,7 @@ func arguments(workspace, schema, model string) []string {
 	}
 	// This feature is present in the pinned executable's `features list`.
 	args = append(args, "--enable", "skip_host_skill_discovery")
-	if model != "" {
-		args = append(args, "--model", model)
-	}
+	args = append(args, "--model", model)
 	return append(args, "-")
 }
 

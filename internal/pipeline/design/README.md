@@ -45,6 +45,14 @@ block. Pending or abandoned reservations still count; constructing a new Engine
 does not restore consumed budget. All design and review attempts count against
 the finite total-run limit, with a separate bound on each role's rounds.
 
+Run input identity is reconstructed with the same canonical algorithm in
+admission, execution and freezing. Its digest binds original input references and
+bytes, the startup/policy version, contract, pre-merge base and (for review) the
+candidate and author Run. `Run.Inputs` must be the exact ordered list `[contract]`
+for a designer and `[contract, author Run]` for a reviewer. A legitimately signed
+old Run is not evidence for different inputs, even if a new approval/evidence
+graph points to it. The trusted fresh source must publish these exact pins.
+
 The wall-time origin is the native creation time of the project-control Issue,
 not a local restart timestamp. Missing or future native time blocks. Runtime
 timeout is the smaller of the reserved per-run allowance and remaining cycle
@@ -80,6 +88,8 @@ It reads a same-repository non-draft merged PR, requires the configured default
 target branch, exact reviewed head/base, and current target SHA equal to the merge
 commit. Head and merge trees must match and the design bytes must be identical at
 both commits. Auto-closed design Issues are permitted for this merge check only.
+The two Run identities are rebuilt against the reviewed pre-merge base, not the
+post-merge target used for the independent native merge check.
 Unapproved candidate revisions, missing/edited records, moved targets, recreated
 native objects or different trees block. The result is an existing typed
 `protocol.Baseline`, not an already-published or accepted baseline.
@@ -109,14 +119,29 @@ and cost-enforcement boundaries. Host read-only access is not proof that secrets
 are inaccessible; publication credentials and untrusted execution must remain
 separated by the managed host.
 
-Two explicitly authorized real integration invocations failed. Invocation 1
+Round 1's two explicitly authorized real integration invocations failed. Invocation 1
 failed with `ErrEvent` after a successful CLI exit; its raw event shape was not
 retained. Fixed non-content diagnostic codes were then added without broadening
 allowed events. Invocation 2 failed with `item_before_turn at line 2` (7.65
 seconds), proving an item event preceded the expected turn start, but not which
-item subtype or content. The exact compatibility cause remains **unproven**; no
-event was silently ignored or newly allowed. No third model invocation occurred,
+item subtype or content. At that point the exact cause was unproven; no event was
+silently ignored or newly allowed. No third model invocation occurred,
 because there was not enough captured safe shape to establish the required
-deterministic regression and justify a parser change. Real adapter acceptance
-remains **BLOCKED**. Offline test success and local Developer checks are not
-Acceptance PASS or an end-to-end live design/review demonstration.
+deterministic regression and justify a parser change.
+
+Round 2 used exactly two further authorized native diagnostics, both preserving
+FAIL. The first (8.315 seconds) identified the development-feature warning; after
+the documented configuration acknowledgement, the second (8.088 seconds) showed
+that warning was gone and retained the Code Mode-host-disabled error. Only fixed
+reason categories, lengths and hashes were emitted, never native error content.
+A separate diagnostic command failed during `--version` before any `exec` or
+model start; its macOS zombie-group EPERM cause was fixed and checked offline and
+with version-only probes before the second actual model call.
+
+The Controller then explicitly selected `gpt-5.5` for this acceptance environment
+from the authenticated visible catalog (not a product default). Model selection
+is now mandatory and fail-closed; Code Mode and its host remain disabled, and all
+runtime error/unknown/tool events remain rejected. The Developer made no further
+model call. Full live success for that exact selection is still **UNPROVEN** and
+must be established by independent Acceptance. Offline success is not Acceptance
+PASS or an end-to-end live design/review demonstration.

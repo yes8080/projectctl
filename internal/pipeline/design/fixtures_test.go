@@ -195,6 +195,9 @@ func (f *fixture) fresh(t *testing.T) FreshRunSource {
 			}
 		}
 		run := &protocol.Run{Envelope: envelope(protocol.KindRun, r.Project, protocol.Subject{Issue: r.Issue.Number}, fmt.Sprintf("%s-%d", r.Role, round)), Role: r.Role, AgentInstance: fmt.Sprintf("host-instance-%s-%d", r.Role, round), Host: "isolated-host", Inputs: []protocol.Reference{r.Contract}, InputSHA256: inputHash, AssignmentGeneration: round, Attempt: round, Budget: f.manifest.Policy.Budget}
+		if r.Role == protocol.RoleDesignReviewer && r.AuthorRun != nil {
+			run.Inputs = append(run.Inputs, *r.AuthorRun)
+		}
 		return f.record(t, run, native(1), true), nil
 	}
 }
