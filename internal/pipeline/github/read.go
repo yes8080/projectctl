@@ -31,6 +31,7 @@ type Issue struct {
 	URL       string
 	Title     string
 	State     string
+	CreatedAt string
 	Author    protocol.GitHubIdentity
 	Content   Content
 	Milestone *Resource
@@ -63,6 +64,7 @@ type nativeIssue struct {
 	RepositoryURL string                  `json:"repository_url"`
 	Title         string                  `json:"title"`
 	State         string                  `json:"state"`
+	CreatedAt     string                  `json:"created_at"`
 	Body          *string                 `json:"body"`
 	User          protocol.GitHubIdentity `json:"user"`
 	PullRequest   json.RawMessage         `json:"pull_request"`
@@ -154,7 +156,7 @@ func (g *Gateway) issue(n nativeIssue) (Issue, error) {
 	if err := n.User.Validate(); err != nil {
 		return zero, err
 	}
-	result := Issue{Resource: Resource{Kind: kind, Number: n.Number, DatabaseID: n.ID, NodeID: n.NodeID}, URL: n.URL, Title: n.Title, State: n.State, Author: n.User, Content: content(n.Body)}
+	result := Issue{Resource: Resource{Kind: kind, Number: n.Number, DatabaseID: n.ID, NodeID: n.NodeID}, URL: n.URL, Title: n.Title, State: n.State, CreatedAt: n.CreatedAt, Author: n.User, Content: content(n.Body)}
 	if n.Milestone != nil {
 		m, err := g.milestone(*n.Milestone)
 		if err != nil {
