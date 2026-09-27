@@ -254,6 +254,8 @@ func RequireIndependent(a, b VerifiedRecord) error {
 // approval passed by the Controller. It never chooses the newest candidate.
 // Resolving approval/revision supersession is the Controller's responsibility;
 // this function does not infer authority from timestamps or list order.
+// A selected Acceptance is a formal PASS, not proof of independent review or
+// actual PR head/base/merge/source facts; higher-level gates verify those facts.
 func SelectApproved(candidates []VerifiedRecord, approval VerifiedRecord, policy Policy) (VerifiedRecord, error) {
 	var zero VerifiedRecord
 	if err := Authorize(approval, policy, RoleController); err != nil {
@@ -297,6 +299,15 @@ func SelectApproved(candidates []VerifiedRecord, approval VerifiedRecord, policy
 		}
 		switch candidate.header.Kind {
 		case KindBaseline, KindPlan, KindContract:
+		case KindAcceptance:
+			record, err := candidate.Record()
+			if err != nil {
+				return zero, err
+			}
+			acceptance, ok := record.(*Acceptance)
+			if !ok || acceptance.Decision != "PASS" || len(acceptance.UnresolvedFindings) != 0 {
+				return zero, fmt.Errorf("an approved acceptance candidate requires formal PASS without unresolved findings")
+			}
 		default:
 			return zero, fmt.Errorf("record kind cannot be an approved candidate")
 		}

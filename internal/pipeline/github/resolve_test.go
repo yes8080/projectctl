@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +12,175 @@ import (
 
 	"github.com/yes8080/projectctl/internal/pipeline/protocol"
 )
+
+// This graph intentionally uses one native identity throughout: the generic
+// selector validates exact approvals, not design-layer reviewer independence.
+type acceptanceGraphFixture struct {
+	objects   map[int64]map[string]any
+	review    *protocol.Acceptance
+	decision  *protocol.Approval
+	root      protocol.Reference
+	candidate protocol.Reference
+}
+
+func newAcceptanceGraph(t *testing.T) *acceptanceGraphFixture {
+	t.Helper()
+	f := &acceptanceGraphFixture{objects: map[int64]map[string]any{}}
+	contract, contractRef := recordNative(t, gatewayContract(), 31)
+	f.objects[31] = contract
+	header := func(kind protocol.Kind, op string) protocol.Envelope {
+		return protocol.Envelope{Schema: protocol.Schema, Kind: kind, Project: testServerFixtureProject(), Subject: protocol.Subject{PullRequest: 3}, OperationID: op, Version: 1}
+	}
+	budget := protocol.Budget{MaxAgentRuns: 10, MaxRunSeconds: 60, MaxWallSeconds: 600, MaxDesignRounds: 2, MaxPlanningRounds: 2, MaxImplementationRounds: 3, Currency: "USD"}
+	run := &protocol.Run{Envelope: header(protocol.KindRun, "review-run"), Role: protocol.RoleDesignReviewer, AgentInstance: "reviewer", Host: "test", Inputs: []protocol.Reference{contractRef}, InputSHA256: strings.Repeat("a", 64), AssignmentGeneration: 1, Attempt: 1, Budget: budget}
+	runNative, runRef := recordNative(t, run, 33)
+	f.objects[33] = runNative
+	bind := protocol.Binding{PullRequest: 3, HeadSHA: strings.Repeat("b", 40), BaseSHA: strings.Repeat("c", 40), DesignSHA256: strings.Repeat("a", 64), ContractSHA256: contractRef.CanonicalSHA256, PolicySHA256: strings.Repeat("a", 64)}
+	evidence := &protocol.Evidence{Envelope: header(protocol.KindEvidence, "review-evidence"), Binding: bind, Run: runRef, CheckID: "unit", Argv: []string{"go", "test"}, EnvironmentSHA256: strings.Repeat("a", 64), Result: "PASS", LogSHA256: strings.Repeat("a", 64)}
+	evidenceNative, evidenceRef := recordNative(t, evidence, 34)
+	f.objects[34] = evidenceNative
+	f.review = &protocol.Acceptance{Envelope: header(protocol.KindAcceptance, "formal-design-review"), Binding: bind, Run: runRef, Assessments: []protocol.Assessment{{CriterionID: "AC-1", Result: "PASS", Reason: "observed", Evidence: []protocol.Reference{evidenceRef}}}, UnresolvedFindings: []protocol.Reference{}, Decision: "PASS", Reason: "all required observations"}
+	f.pinReview(t)
+	return f
+}
+
+func (f *acceptanceGraphFixture) pinReview(t *testing.T) {
+	t.Helper()
+	f.objects[37], f.candidate = recordNative(t, f.review, 37)
+	f.decision = gatewayApproval(t, f.candidate, f.review.Subject, "design-approval")
+	f.pinDecision(t)
+}
+
+func (f *acceptanceGraphFixture) pinDecision(t *testing.T) {
+	t.Helper()
+	f.objects[40], f.root = recordNative(t, f.decision, 40)
+}
+
+func (f *acceptanceGraphFixture) gateway(t *testing.T) *Gateway {
+	t.Helper()
+	g, _ := testServerFixtureGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Error("read-only graph attempted a write")
+		}
+		id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/repos/octo/pipeline/issues/comments/"), 10, 64)
+		if item, ok := f.objects[id]; ok {
+			testServerFixtureJSON(t, w, item)
+		} else {
+			http.NotFound(w, r)
+		}
+	})
+	return g
+}
+
+func TestResolveApprovedFormalAcceptanceGraph(t *testing.T) {
+	f := newAcceptanceGraph(t)
+	newer := *f.review
+	newer.OperationID, newer.Version, newer.Reason = "review-v2", 2, "unapproved newer review"
+	f.objects[38], _ = recordNative(t, &newer, 38)
+	g := f.gateway(t)
+	chain, err := g.ResolveApproved(context.Background(), f.root, gatewayPolicy())
+	if err != nil || chain.Candidate.Reference() != f.candidate || len(chain.Records) != 5 {
+		t.Fatalf("exact review graph not resolved: records=%d err=%v", len(chain.Records), err)
+	}
+	// A baseline may pin both the Acceptance and the Controller's exact approval
+	// of that Acceptance. Neither the source nor native merge facts are verified
+	// by graph traversal; the design gate owns those additional observations.
+	source := protocol.SourceReference{Commit: strings.Repeat("b", 40), Path: "docs/design.md", SHA256: strings.Repeat("a", 64)}
+	baseline := &protocol.Baseline{Envelope: protocol.Envelope{Schema: protocol.Schema, Kind: protocol.KindBaseline, Project: testServerFixtureProject(), Subject: protocol.Subject{Issue: 1}, OperationID: "baseline", Version: 1}, Inputs: []protocol.SourceReference{source}, Design: source, PolicySHA256: strings.Repeat("a", 64), Review: f.candidate, Approval: f.root}
+	var baselineRef protocol.Reference
+	f.objects[41], baselineRef = recordNative(t, baseline, 41)
+	var root protocol.Reference
+	f.objects[42], root = recordNative(t, gatewayApproval(t, baselineRef, baseline.Subject, "baseline-approval"), 42)
+	chain, err = g.ResolveApproved(context.Background(), root, gatewayPolicy())
+	if err != nil || chain.Candidate.Reference() != baselineRef || len(chain.Records) != 7 {
+		t.Fatalf("baseline approval graph incomplete: records=%d err=%v", len(chain.Records), err)
+	}
+	delete(f.objects, 33)
+	if _, err := g.ResolveApproved(context.Background(), root, gatewayPolicy()); err == nil {
+		t.Fatal("previous successful graph hid deleted transitive run")
+	}
+}
+
+func TestResolveApprovedAcceptanceGraphFailsClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*testing.T, *acceptanceGraphFixture, *protocol.Policy)
+	}{
+		{"FAIL", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.review.Decision = "FAIL"
+			f.pinReview(t)
+		}},
+		{"FAIL unresolved", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.review.Decision = "FAIL"
+			f.review.UnresolvedFindings = []protocol.Reference{f.review.Run}
+			f.pinReview(t)
+		}},
+		{"PASS unresolved", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.review.UnresolvedFindings = []protocol.Reference{f.review.Run}
+			data, err := json.Marshal(f.review)
+			if err != nil {
+				t.Fatal(err)
+			}
+			canonical, err := protocol.CanonicalJSON(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := protocol.Marker + " " + string(canonical)
+			f.objects[37]["body"] = body
+			f.decision.Candidate.BodySHA256 = protocol.SHA256([]byte(body))
+			f.decision.Candidate.CanonicalSHA256 = protocol.SHA256(canonical)
+			f.pinDecision(t)
+		}},
+		{"body edit", func(_ *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.objects[37]["body"] = f.objects[37]["body"].(string) + "\n"
+		}},
+		{"native author", func(_ *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			a := testServerFixtureAuthor()
+			a.ID++
+			f.objects[37]["user"] = a
+		}},
+		{"native node", func(_ *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.objects[37]["node_id"] = "IC_replaced"
+		}},
+		{"policy changed", func(_ *testing.T, _ *acceptanceGraphFixture, p *protocol.Policy) { p.Version++ }},
+		{"subject drift", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.decision.Subject.PullRequest++
+			f.pinDecision(t)
+		}},
+		{"candidate pin drift", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.decision.Candidate.BodySHA256 = strings.Repeat("a", 64)
+			f.pinDecision(t)
+		}},
+		{"reference kind", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.review.Assessments[0].Evidence = []protocol.Reference{f.review.Run}
+			f.pinReview(t)
+		}},
+		{"transitive body edit", func(_ *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.objects[34]["body"] = "edited evidence"
+		}},
+		{"missing transitive", func(_ *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) { delete(f.objects, 31) }},
+		{"operation conflict", func(t *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			f.review.OperationID = "review-run"
+			f.pinReview(t)
+		}},
+		{"unauthorized approval author", func(_ *testing.T, f *acceptanceGraphFixture, _ *protocol.Policy) {
+			a := testServerFixtureAuthor()
+			a.ID++
+			a.NodeID = "U_other"
+			f.objects[40]["user"] = a
+			f.root.Author = a
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f, policy := newAcceptanceGraph(t), gatewayPolicy()
+			test.change(t, f, &policy)
+			if _, err := f.gateway(t).ResolveApproved(context.Background(), f.root, policy); err == nil {
+				t.Fatal("invalid acceptance graph approved")
+			}
+		})
+	}
+}
 
 func gatewayContract() *protocol.Contract {
 	return &protocol.Contract{

@@ -270,3 +270,137 @@ func TestPolicyStrictness(t *testing.T) {
 		t.Fatal("duplicate grant accepted")
 	}
 }
+
+func fixtureAcceptance() *Acceptance { return fixtureRecords()[5].(*Acceptance) }
+
+func TestApprovalSelectsExactFormalPASSAcceptance(t *testing.T) {
+	policy := fixturePolicy()
+	pass := verified(t, fixtureAcceptance(), testAuthor, 301)
+	newerRecord := fixtureAcceptance()
+	newerRecord.Version++
+	newerRecord.OperationID = "acceptance-v2"
+	newerRecord.Reason = "new unapproved review"
+	newer := verified(t, newerRecord, testAuthor, 302)
+	approval := verified(t, approvalFor(t, pass, policy), testAuthor, 303)
+	for _, candidates := range [][]VerifiedRecord{{pass}, {pass, newer}, {newer, pass}, {pass, pass, newer}} {
+		selected, err := SelectApproved(candidates, approval, policy)
+		if err != nil || selected.Reference() != pass.Reference() {
+			t.Fatalf("exact formal PASS not selected: %v", err)
+		}
+	}
+	// Selection is exact Controller authorization, not a design-review gate:
+	// independent reviewer identity and actual PR/source facts remain the caller's.
+	if err := RequireIndependent(pass, approval); err == nil {
+		t.Fatal("fixture unexpectedly models independent participants")
+	}
+}
+
+func TestApprovalRejectsFAILAcceptanceAndOtherRecordKinds(t *testing.T) {
+	for _, unresolved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("FAIL unresolved=%v", unresolved), func(t *testing.T) {
+			r := fixtureAcceptance()
+			r.Decision = "FAIL"
+			r.Assessments[0].Result = "FAIL"
+			if unresolved {
+				r.UnresolvedFindings = []Reference{reference(2)}
+			}
+			candidate := verified(t, r, testAuthor, 301)
+			approval := verified(t, approvalFor(t, candidate, fixturePolicy()), testAuthor, 303)
+			if _, err := SelectApproved([]VerifiedRecord{candidate}, approval, fixturePolicy()); err == nil {
+				t.Fatal("Controller approval promoted FAIL to an approved candidate")
+			}
+		})
+	}
+	for _, r := range fixtureRecords() {
+		switch r.Header().Kind {
+		case KindRun, KindEvidence, KindDelivery, KindApproval:
+		default:
+			continue
+		}
+		t.Run(string(r.Header().Kind), func(t *testing.T) {
+			candidate := verified(t, r, testAuthor, 301)
+			approval := verified(t, approvalFor(t, candidate, fixturePolicy()), testAuthor, 303)
+			if _, err := SelectApproved([]VerifiedRecord{candidate}, approval, fixturePolicy()); err == nil {
+				t.Fatal("candidate kind whitelist was widened")
+			}
+		})
+	}
+}
+
+func TestAcceptanceApprovalPreservesExactBinding(t *testing.T) {
+	type scenario struct {
+		candidates []VerifiedRecord
+		approval   *Approval
+		author     GitHubIdentity
+		policy     Policy
+	}
+	tests := []struct {
+		name   string
+		change func(*scenario)
+	}{
+		{"missing", func(s *scenario) { s.candidates = nil }},
+		{"raw digest", func(s *scenario) { s.approval.Candidate.BodySHA256 = testDigest }},
+		{"canonical digest", func(s *scenario) { s.approval.Candidate.CanonicalSHA256 = testDigest }},
+		{"native candidate author", func(s *scenario) { s.approval.Candidate.Author = developerIdentity }},
+		{"native candidate node", func(s *scenario) { s.approval.Candidate.NodeID = "IC_other" }},
+		{"subject", func(s *scenario) { s.approval.Subject.PullRequest++ }},
+		{"policy", func(s *scenario) { s.policy.Version++ }},
+		{"unauthorized controller", func(s *scenario) { s.author = developerIdentity }},
+		{"rejected", func(s *scenario) { s.approval.Decision = "REJECTED" }},
+		{"operation reused", func(s *scenario) {
+			s.candidates = append(s.candidates, verified(t, fixtureAcceptance(), testAuthor, 302))
+		}},
+		{"operation conflict", func(s *scenario) {
+			r := fixtureAcceptance()
+			r.Reason = "different review under same operation"
+			s.candidates = append(s.candidates, verified(t, r, testAuthor, 302))
+		}},
+		{"same native object edited", func(s *scenario) {
+			r := fixtureAcceptance()
+			r.OperationID = "acceptance-edited"
+			s.candidates = append(s.candidates, verified(t, r, testAuthor, 301))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := verified(t, fixtureAcceptance(), testAuthor, 301)
+			s := scenario{[]VerifiedRecord{candidate}, approvalFor(t, candidate, fixturePolicy()), testAuthor, fixturePolicy()}
+			test.change(&s)
+			approval := verified(t, s.approval, s.author, 303)
+			if _, err := SelectApproved(s.candidates, approval, s.policy); err == nil {
+				t.Fatal("invalid acceptance approval accepted")
+			}
+		})
+	}
+}
+
+func TestMalformedPASSCannotBecomeVerifiedCandidate(t *testing.T) {
+	for _, mode := range []string{"unresolved finding", "failed assessment", "informal decision"} {
+		t.Run(mode, func(t *testing.T) {
+			r := fixtureAcceptance()
+			native, ref := observed(t, r, testAuthor, 301)
+			switch mode {
+			case "unresolved finding":
+				r.UnresolvedFindings = []Reference{reference(2)}
+			case "failed assessment":
+				r.Assessments[0].Result = "FAIL"
+			case "informal decision":
+				r.Decision = "LGTM"
+			}
+			// Recompute both pins to prove rejection is semantic, not merely drift.
+			data, err := json.Marshal(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			canonical, err := CanonicalJSON(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			native.Body = Marker + " " + string(canonical)
+			ref.BodySHA256, ref.CanonicalSHA256 = SHA256([]byte(native.Body)), SHA256(canonical)
+			if _, err := VerifyGitHubRecord(native, ref); err == nil {
+				t.Fatal("malformed PASS became a verified candidate")
+			}
+		})
+	}
+}
