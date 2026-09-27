@@ -136,6 +136,18 @@ Duplicate intents/objects, changed payloads, wrong authors or changed native
 membership fail closed. Completed operations recover with a fresh Gateway and no
 local files. Both recovery APIs perform reads only; they never create a missing object.
 
+Intent and effect collections are not an atomic snapshot. If a read observes an
+effect after previously finding no intent, reconciliation repeats **both complete
+collections exactly once**, checking the same operation ID, request digest,
+native identities and publisher. A matching pair returns `reconciled`. If the
+pair is still missing, inaccessible, or disappears during the second observation,
+the result is `ErrUncertain`, not an inferred orphan conflict or a new-write
+opportunity. A positive wrong body/author, duplicate, or different effect identity
+remains `ErrConflict`; rereading never erases such contradictory facts. There is
+no sleep, unbounded retry, or claim of an atomic snapshot. A pre-existing native
+dependency edge retains its explicit adoption behavior and is not a completed
+operation without a matching intent.
+
 An existing intent with an absent/unconfirmed effect, or an absent/invisible
 intent without a fresh unspent admission, returns `ErrUncertain` and
 **does not automatically retry**, including after restart. A fresh bounded read-only

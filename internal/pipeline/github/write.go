@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -304,6 +305,50 @@ func equalIntent(a, b Intent) bool {
 }
 
 func (g *Gateway) inspect(ctx context.Context, p prepared) (Outcome, bool, error) {
+	result, found, err := g.inspectOnce(ctx, p)
+	if err != nil || !found || result.Intent != nil || p.intent.Action == AddDependency {
+		return result, found, err
+	}
+	// Lists are not an atomic snapshot: the intent may be published after its
+	// collection was read, but before the effect collection is read. Repeat both
+	// complete reads once, never just the missing half and never until success.
+	first := result
+	result, found, err = g.inspectOnce(ctx, p)
+	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			// Positive contradictory object facts remain conflicts; retries must
+			// not wash out a wrong identity/body or duplicate operation object.
+			return result, false, err
+		}
+		return result, false, fmt.Errorf("%w: read-skew reconciliation failed: %w", ErrUncertain, err)
+	}
+	if found && !sameEffectIdentity(first, result) {
+		result.State = "uncertain"
+		return result, false, fmt.Errorf("%w: operation effect identity changed between observations", ErrConflict)
+	}
+	if !found || result.Intent == nil {
+		result.State = "uncertain"
+		// A prior effect observation is not erased by another empty response.
+		// In particular, ApplyFirst must not fall through into another POST.
+		return result, false, ErrUncertain
+	}
+	return result, true, nil
+}
+
+func sameEffectIdentity(a, b Outcome) bool {
+	switch {
+	case a.Issue != nil:
+		return b.Issue != nil && a.Issue.Resource == b.Issue.Resource
+	case a.Milestone != nil:
+		return b.Milestone != nil && a.Milestone.Resource == b.Milestone.Resource
+	case a.Comment != nil:
+		return b.Comment != nil && a.Comment.DatabaseID == b.Comment.DatabaseID && a.Comment.NodeID == b.Comment.NodeID && a.Comment.URL == b.Comment.URL && a.Comment.Parent == b.Comment.Parent
+	default:
+		return false
+	}
+}
+
+func (g *Gateway) inspectOnce(ctx context.Context, p prepared) (Outcome, bool, error) {
 	result := Outcome{OperationID: p.intent.OperationID, State: "uncertain"}
 	comments, err := g.ListComments(ctx, p.intent.Control)
 	if err != nil {
@@ -438,9 +483,6 @@ func (g *Gateway) inspect(ctx context.Context, p prepared) (Outcome, bool, error
 			result.Issue = &copy
 			found = true
 		}
-	}
-	if found && result.Intent == nil && p.intent.Action != AddDependency {
-		return result, false, fmt.Errorf("%w: object exists but its intent is missing", ErrConflict)
 	}
 	if found {
 		result.State = "reconciled"

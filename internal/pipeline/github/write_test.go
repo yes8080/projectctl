@@ -462,8 +462,8 @@ func TestChangedRequestAndDeletedIntentDoNotCreateAgain(t *testing.T) {
 	f.comments[2] = nil
 	before := f.posts["/issues"]
 	f.mu.Unlock()
-	if _, err := g.Apply(context.Background(), request); !errors.Is(err, ErrConflict) {
-		t.Fatalf("deleted intent ignored: %v", err)
+	if _, err := g.Apply(context.Background(), request); !errors.Is(err, ErrUncertain) {
+		t.Fatalf("missing intent must remain uncertain after bounded reread: %v", err)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
