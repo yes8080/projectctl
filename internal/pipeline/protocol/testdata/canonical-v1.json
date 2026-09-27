@@ -1,0 +1,26 @@
+[
+  {
+    "Name": "object keys and whitespace",
+    "Input": "{ \"b\": 2, \"a\": 1 }",
+    "Canonical": "{\"a\":1,\"b\":2}",
+    "SHA256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+  },
+  {
+    "Name": "unicode and minimal escapes",
+    "Input": "{\"z\":\"\\b\\t\\n\\f\\r\\u0000\",\"a\":\"\\u003c&\\/\\u2028\\ud83d\\ude00\"}",
+    "Canonical": "{\"a\":\"<&/\u2028😀\",\"z\":\"\\b\\t\\n\\f\\r\\u0000\"}",
+    "SHA256": "a1c2e556207bcd121ad3e56fb94df5a0f6a5d94d1d8a6639dc3e19182fb35cb4"
+  },
+  {
+    "Name": "int64 boundaries without float conversion",
+    "Input": "[ -9223372036854775808, 0, 9223372036854775807 ]",
+    "Canonical": "[-9223372036854775808,0,9223372036854775807]",
+    "SHA256": "5a89ad9a024ba4509e54038025db9548cf004ffe0afd23968dea918cad3d9b00"
+  },
+  {
+    "Name": "recursive ordering and array order",
+    "Input": "{\"z\":{},\"a\":[{\"y\":null,\"x\":true},false]}",
+    "Canonical": "{\"a\":[{\"x\":true,\"y\":null},false],\"z\":{}}",
+    "SHA256": "16c9285f0dca3b08c047968a1f9800857a3e0bbe5e63cc8cfd219565c593c122"
+  }
+]
