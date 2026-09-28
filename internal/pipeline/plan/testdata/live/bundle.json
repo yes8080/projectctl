@@ -1,0 +1,312 @@
+{
+  "candidate": {
+    "schema": "projectctl.plan-candidate/v1",
+    "contracts": [
+      {
+        "key": "integration",
+        "kind": "integration",
+        "goal": "Validate the bounded Issue 9 plan-stage live fixture",
+        "scope": [
+          "Publish one temporary Issue and its exact Contract in existing Milestone 1",
+          "Publish a Plan candidate and read back its exact native identities",
+          "Verify independent Agent-instance review, exact Controller approval, activation and cleanup"
+        ],
+        "non_goals": [
+          "No startup or design or Planner end-to-end validation",
+          "No native credential-separation claim",
+          "No changes to pre-existing objects or product dispatch"
+        ],
+        "requirements": [
+          "integration"
+        ],
+        "acceptance": [
+          {
+            "id": "AC-1",
+            "statement": "Verify the authorized plan-stage fixture through real native publication, exact independent Agent-instance review, Controller approval, activation, remote drift checks and confirmed cleanup.",
+            "requirements": [
+              "integration"
+            ],
+            "checks": [
+              "fixture-contract",
+              "offline-plan-regression"
+            ]
+          }
+        ],
+        "verification": [
+          {
+            "id": "fixture-contract",
+            "argv": [
+              "go",
+              "test",
+              "./internal/pipeline/plan",
+              "-run",
+              "^TestPlanLiveFixtureBundle$",
+              "-count=1"
+            ]
+          },
+          {
+            "id": "offline-plan-regression",
+            "argv": [
+              "go",
+              "test",
+              "./internal/pipeline/plan",
+              "-run",
+              "^TestPublication",
+              "-count=1"
+            ]
+          }
+        ],
+        "acceptance_environment": {
+          "os": [
+            "macos"
+          ],
+          "go": "1.22",
+          "network": "Real GitHub REST through the production Gateway only; offline checks use local httptest",
+          "credentials": "Controller-held existing GitHub credential; native credential separation is not claimed",
+          "fixtures": "Committed exact-head Issue 9 plan-only fixture; existing control Issue 2 and Milestone 1"
+        },
+        "impact_surface": [
+          "internal/pipeline/plan",
+          "Temporary native GitHub fixture objects explicitly recorded by the runner"
+        ],
+        "risks": [
+          {
+            "risk": "An accepted remote write has an uncertain response",
+            "mitigation": "Reconcile the exact operation read-only; never automatically repeat its POST"
+          },
+          {
+            "risk": "Cleanup or native identity cannot be confirmed",
+            "mitigation": "Report FAIL with surviving native URLs and stop"
+          }
+        ],
+        "dependencies": [],
+        "candidate_binding": "exact_source_artifact_environment"
+      }
+    ],
+    "open_decisions": []
+  },
+  "inputs": {
+    "Design": {
+      "schema": "projectctl.design-output/v1",
+      "requirements": [
+        {
+          "id": "integration",
+          "statement": "Verify the authorized plan-stage fixture through real native publication, exact independent Agent-instance review, Controller approval, activation, remote drift checks and confirmed cleanup."
+        }
+      ],
+      "sections": [
+        {
+          "id": "boundaries",
+          "content": "Controller-authorized plan.InputReader fixture only. Upstream startup, design and Planner validation are not claimed."
+        },
+        {
+          "id": "workflows",
+          "content": "Publish one fixture Issue, Contract and Plan; independent Agent-instance review; exact Controller approval; activate; reread and clean up."
+        },
+        {
+          "id": "architecture",
+          "content": "The committed fixture is read-only host input. The production Gateway remains the only GitHub fact and mutation boundary."
+        },
+        {
+          "id": "contracts",
+          "content": "Use the existing protocol Contract, Run, Plan, PlanAcceptance and Approval shapes. Never fabricate native IDs."
+        },
+        {
+          "id": "data_model",
+          "content": "The fixture is static input, not an execution ledger. Created objects and outcomes live in GitHub."
+        },
+        {
+          "id": "permissions",
+          "content": "Only the explicit Controller run scope authorizes writes. The single real publisher does not prove credential separation."
+        },
+        {
+          "id": "external_dependencies",
+          "content": "Use yes8080/projectctl, existing control Issue 2 and existing Milestone 1. Never create a Milestone."
+        },
+        {
+          "id": "technology",
+          "content": "Go 1.22-compatible plan package and standard-library GitHub Gateway. No model invocation is part of this fixture."
+        },
+        {
+          "id": "environments",
+          "content": "macOS Controller host; read immutable sources from the exact published implementation head; credentials remain outside fixture data."
+        },
+        {
+          "id": "testing",
+          "content": "Strictly decode the static candidate and design DTO. Run offline regressions separately from real GitHub evidence."
+        },
+        {
+          "id": "integration",
+          "content": "The sole integration requirement covers this plan-stage boundary only. Full startup-to-delivery integration remains Issue 11."
+        },
+        {
+          "id": "migration",
+          "content": "No migration or rewriting of the existing Markdown control Issue or bootstrap records."
+        },
+        {
+          "id": "risks",
+          "content": "Ambiguous writes, drift, identity mismatch and incomplete cleanup block success; preserve immutable evidence."
+        },
+        {
+          "id": "completion",
+          "content": "A bounded run succeeds only after exact reviewed activation and verified closure of every newly-created Issue."
+        },
+        {
+          "id": "rollback",
+          "content": "Never delete or edit pre-existing objects or immutable fixture comments. Close only exact newly-created Issues; report incomplete cleanup."
+        }
+      ],
+      "open_questions": []
+    },
+    "Manifest": {
+      "schema": "projectctl.startup/v1",
+      "version": 1,
+      "repository": {
+        "owner": "yes8080",
+        "name": "projectctl",
+        "database_id": 1390728645,
+        "node_id": "R_kgDOUuTVxQ"
+      },
+      "cycle": "issue9-plan-only-live",
+      "operation_id": "issue9-plan-only-live-input",
+      "inputs": [
+        {
+          "kind": "development",
+          "source": {
+            "commit": "1da6dfa438d4deaa13d42475e33fe84492c3d40b",
+            "path": "docs/pipeline-design.md",
+            "sha256": "3c5d9585a9fec44455af7a2a4c2a4090a6d78b297cd6f07a196a09bd2a5184c8"
+          }
+        }
+      ],
+      "policy": {
+        "goal": "Exercise the authorized Issue 9 plan-only live boundary without claiming upstream validation",
+        "non_goals": [
+          "No startup-ready assertion",
+          "No product dispatch",
+          "No native credential-separation assertion"
+        ],
+        "store_inputs_authorized": true,
+        "remote_writes_authorized": true,
+        "roles": {
+          "controller": {
+            "id": 515784,
+            "node_id": "MDQ6VXNlcjUxNTc4NA==",
+            "login": "yes8080",
+            "type": "User"
+          },
+          "designer": {
+            "id": 515784,
+            "node_id": "MDQ6VXNlcjUxNTc4NA==",
+            "login": "yes8080",
+            "type": "User"
+          },
+          "design_reviewer": {
+            "id": 515784,
+            "node_id": "MDQ6VXNlcjUxNTc4NA==",
+            "login": "yes8080",
+            "type": "User"
+          },
+          "developer": {
+            "id": 515784,
+            "node_id": "MDQ6VXNlcjUxNTc4NA==",
+            "login": "yes8080",
+            "type": "User"
+          },
+          "acceptor": {
+            "id": 515784,
+            "node_id": "MDQ6VXNlcjUxNTc4NA==",
+            "login": "yes8080",
+            "type": "User"
+          }
+        },
+        "budget": {
+          "max_agent_runs": 12,
+          "max_run_seconds": 120,
+          "max_wall_seconds": 1800,
+          "max_design_rounds": 1,
+          "max_planning_rounds": 1,
+          "max_implementation_rounds": 1,
+          "max_defect_fix_issues": 0,
+          "max_change_requests": 0,
+          "max_cost_minor_units": 0,
+          "currency": "USD"
+        },
+        "max_parallel_development": 1,
+        "max_parallel_merge": 1,
+        "completion": {
+          "endpoint": "integrated_code",
+          "criteria": [
+            "Exact plan-stage fixture is approved and activated after independent Agent-instance review",
+            "All newly-created fixture Issues are closed and closure is reread",
+            "No pre-existing object was modified; immutable evidence comments remain"
+          ],
+          "require_integration": true,
+          "require_bug_gate": true,
+          "require_remote_cleanup": true,
+          "require_local_cleanup": true
+        },
+        "terminal_conditions": [
+          "completed",
+          "blocked",
+          "budget_exceeded",
+          "failed",
+          "paused",
+          "cancelled"
+        ],
+        "environment": {
+          "operating_systems": [
+            "macos"
+          ],
+          "runtime": "Controller-owned plan-only live runner; no model calls",
+          "acceptance_target": "yes8080/projectctl control Issue 2 and existing Milestone 1",
+          "workspace_isolation": "isolated",
+          "credential_isolation": "controller_only",
+          "external_usage_limit": "No separately metered provider use; maximum 24 comments, 3 Issues, 2 edges, 0 Milestones"
+        },
+        "required_github_capabilities": [
+          "issues_read",
+          "issues_enabled",
+          "push_permission",
+          "comments_read",
+          "milestones_read"
+        ],
+        "design_files": [
+          "docs/pipeline-design.md"
+        ]
+      }
+    },
+    "SHA256": ""
+  },
+  "authorization": {
+    "schema": "projectctl.policy/v1",
+    "version": 1,
+    "project": {
+      "owner": "yes8080",
+      "repo": "projectctl",
+      "control_issue": 2
+    },
+    "grants": [
+      {
+        "principal": {
+          "id": 515784,
+          "node_id": "MDQ6VXNlcjUxNTc4NA==",
+          "login": "yes8080",
+          "type": "User"
+        },
+        "roles": [
+          "controller",
+          "publisher",
+          "plan_reviewer",
+          "planner"
+        ]
+      }
+    ]
+  },
+  "design_source": {
+    "commit": "1da6dfa438d4deaa13d42475e33fe84492c3d40b",
+    "path": "docs/pipeline-design.md",
+    "sha256": "3c5d9585a9fec44455af7a2a4c2a4090a6d78b297cd6f07a196a09bd2a5184c8"
+  },
+  "design_pull_request": 3
+}

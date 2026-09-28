@@ -512,7 +512,7 @@ func TestPlannerInputNeverSelectsUnapprovedRevision(t *testing.T) {
 }
 
 func TestPlannerInputDigestPinsFullRequestManifestAndWallOrigin(t *testing.T) {
-	for _, mode := range []string{"target pin", "raw manifest", "wall origin", "request reference display metadata"} {
+	for _, mode := range []string{"target pin", "raw manifest", "wall origin"} {
 		t.Run(mode, func(t *testing.T) {
 			f, r := newPlannerInputFixture(t)
 			e := &Engine{remote: f, now: func() time.Time { return f.clock }}
@@ -538,8 +538,6 @@ func TestPlannerInputDigestPinsFullRequestManifestAndWallOrigin(t *testing.T) {
 				v := f.issues[r.Project.ControlIssue]
 				v.CreatedAt = f.clock.Add(-10 * time.Second).Format(time.RFC3339)
 				f.issues[r.Project.ControlIssue] = v
-			case "request reference display metadata":
-				r.Baseline.Author.Login = "renamed-display-login"
 			}
 			after, err := e.prepare(context.Background(), r)
 			if err != nil {
@@ -547,6 +545,38 @@ func TestPlannerInputDigestPinsFullRequestManifestAndWallOrigin(t *testing.T) {
 			}
 			if first.digest == after.digest {
 				t.Fatal("exact input identity omitted changed pin")
+			}
+		})
+	}
+}
+
+func TestPlannerInputDigestIgnoresOnlyDisplayLogins(t *testing.T) {
+	for _, mode := range []string{"request reference", "control", "PR", "all native records"} {
+		t.Run(mode, func(t *testing.T) {
+			f, r := newPlannerInputFixture(t)
+			e := &Engine{remote: f, now: func() time.Time { return f.clock }}
+			first, err := e.prepare(context.Background(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "request reference":
+				r.Baseline.Author.Login = "renamed-controller"
+			case "control":
+				control := f.issues[r.Project.ControlIssue]
+				control.Author.Login = "renamed-controller"
+				f.issues[r.Project.ControlIssue] = control
+			case "PR":
+				f.pr.Author.Login = "renamed-designer"
+			case "all native records":
+				for id, observation := range f.observations {
+					observation.Author.Login = "renamed-display"
+					f.observations[id] = observation
+				}
+			}
+			after, err := e.prepare(context.Background(), r)
+			if err != nil || first.digest != after.digest {
+				t.Fatalf("display-only metadata changed authoritative input: %v", err)
 			}
 		})
 	}

@@ -329,6 +329,12 @@ func (e *Engine) prepare(ctx context.Context, r Request) (prepared, error) {
 		Prompt     string
 		Schema     []byte
 	}{r, manifestBlob, baseline, designBlob, headBlob, control, issue.Resource, repo, branch, pr, p.prompt, p.schema}
+	// Native login is display metadata, not part of a Run's input identity.
+	// Preserve every stable identity and raw source/body pin; only project the
+	// fresh observations and caller reference for this transient digest.
+	identity.Request.Baseline.Author.Login = ""
+	identity.Control.Author.Login = ""
+	identity.PR.Author.Login = ""
 	data, err := json.Marshal(identity)
 	if err != nil {
 		return p, ErrBlocked

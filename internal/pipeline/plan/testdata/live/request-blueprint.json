@@ -1,0 +1,55 @@
+{
+  "schema": "projectctl.plan-live-blueprint/v1",
+  "boundary": "trusted-plan-input-only; not startup-ready; no upstream validation",
+  "scope_ruling": "https://github.com/yes8080/projectctl/pull/17#issuecomment-5861150346",
+  "project": {
+    "owner": "yes8080",
+    "repo": "projectctl",
+    "control_issue": 2
+  },
+  "repository": {
+    "owner": "yes8080",
+    "name": "projectctl",
+    "database_id": 1390728645,
+    "node_id": "R_kgDOUuTVxQ"
+  },
+  "control": {
+    "kind": "issue",
+    "number": 2,
+    "database_id": 5604683166,
+    "node_id": "I_kwDOUuTVxc8AAAABThCtng"
+  },
+  "milestone": {
+    "kind": "milestone",
+    "number": 1,
+    "database_id": 18118698,
+    "node_id": "MI_kwDOUuTVxc4BFHgq",
+    "title": "M1 — Protocol and Launch Gate",
+    "description": "GitHub record protocol, clean-sheet design baseline, independent design review, planning coverage, approval and launch gate."
+  },
+  "design_source": {
+    "commit": "1da6dfa438d4deaa13d42475e33fe84492c3d40b",
+    "path": "docs/pipeline-design.md",
+    "sha256": "3c5d9585a9fec44455af7a2a4c2a4090a6d78b297cd6f07a196a09bd2a5184c8"
+  },
+  "design_pull_request": 3,
+  "source_paths": {
+    "bundle": "internal/pipeline/plan/testdata/live/bundle.json",
+    "candidate": "internal/pipeline/plan/testdata/live/candidate.json",
+    "inputs": "internal/pipeline/plan/testdata/live/inputs.json",
+    "authorization": "internal/pipeline/plan/testdata/live/authorization.json"
+  },
+  "runtime_pins": [
+    "Exact tested implementation commit and SHA256 of every source file",
+    "Unique Controller-selected issue9- prefix",
+    "Current repository default-branch commit read from GitHub",
+    "All newly-created native objects and exact references returned by GitHub"
+  ],
+  "limits": {
+    "new_comments": 24,
+    "new_issues": 3,
+    "new_dependency_edges": 2,
+    "new_milestones": 0
+  },
+  "cleanup": "Close and reread every newly-created Issue; preserve all immutable fixture comments; never modify pre-existing objects"
+}

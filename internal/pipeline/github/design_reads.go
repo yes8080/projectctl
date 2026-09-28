@@ -16,7 +16,7 @@ type Commit struct {
 }
 
 // PullRequest captures same-repository native PR facts. MergeSHA is populated
-// only for a merged PR: GitHub also supplies a test-merge SHA before merging.
+// only from one authoritative merged Issue Event, never a test-merge SHA.
 type PullRequest struct {
 	Resource
 	Repository     Resource
@@ -130,6 +130,11 @@ func (g *Gateway) ReadPullRequest(ctx context.Context, number int64) (PullReques
 	if number <= 0 {
 		return PullRequest{}, fmt.Errorf("positive pull request number required")
 	}
+	// The PR and every event page use the same authenticated credential snapshot.
+	ctx, err := g.bindCredential(ctx)
+	if err != nil {
+		return PullRequest{}, err
+	}
 	var native struct {
 		ID       int64                   `json:"id"`
 		NodeID   string                  `json:"node_id"`
@@ -154,7 +159,7 @@ func (g *Gateway) ReadPullRequest(ctx context.Context, number int64) (PullReques
 	if (native.State != "open" && native.State != "closed") || native.Merged == nil || native.Draft == nil || (*native.Merged && (native.State != "closed" || *native.Draft)) {
 		return PullRequest{}, fmt.Errorf("%w: missing or inconsistent PR state", ErrConflict)
 	}
-	if !sourceHex(native.Head.SHA, 40) || !sourceHex(native.Base.SHA, 40) || !branchName(native.Head.Ref) || !branchName(native.Base.Ref) || (native.MergeSHA != nil && !sourceHex(*native.MergeSHA, 40)) || (*native.Merged && native.MergeSHA == nil) {
+	if !sourceHex(native.Head.SHA, 40) || !sourceHex(native.Base.SHA, 40) || !branchName(native.Head.Ref) || !branchName(native.Base.Ref) || (native.MergeSHA != nil && !sourceHex(*native.MergeSHA, 40)) {
 		return PullRequest{}, fmt.Errorf("%w: invalid PR commits or branches", ErrConflict)
 	}
 	head, err := g.pullRepository(native.Head.Repo)
@@ -170,7 +175,16 @@ func (g *Gateway) ReadPullRequest(ctx context.Context, number int64) (PullReques
 	}
 	result := PullRequest{Resource: Resource{Kind: "pull_request", Number: number, DatabaseID: native.ID, NodeID: native.NodeID}, Repository: head, BaseRepository: base, URL: native.HTMLURL, Author: native.User, State: native.State, Merged: *native.Merged, Draft: *native.Draft, HeadSHA: native.Head.SHA, BaseSHA: native.Base.SHA, HeadRef: native.Head.Ref, BaseRef: native.Base.Ref}
 	if result.Merged {
-		result.MergeSHA = *native.MergeSHA
+		sha, err := g.mergedEventCommit(ctx, number)
+		if err != nil {
+			return PullRequest{}, err
+		}
+		// API 2026-03-10 removed this legacy field. If unexpectedly present it
+		// may expose a contradiction, but never supplies or overrides authority.
+		if native.MergeSHA != nil && *native.MergeSHA != sha {
+			return PullRequest{}, fmt.Errorf("%w: legacy PR merge identity contradicts native event", ErrConflict)
+		}
+		result.MergeSHA = sha
 	}
 	return result, nil
 }
