@@ -1,0 +1,25 @@
+{
+  "schema": "projectctl.policy/v1",
+  "version": 1,
+  "project": {
+    "owner": "yes8080",
+    "repo": "projectctl",
+    "control_issue": 2
+  },
+  "grants": [
+    {
+      "principal": {
+        "id": 515784,
+        "node_id": "MDQ6VXNlcjUxNTc4NA==",
+        "login": "yes8080",
+        "type": "User"
+      },
+      "roles": [
+        "controller",
+        "publisher",
+        "plan_reviewer",
+        "planner"
+      ]
+    }
+  ]
+}

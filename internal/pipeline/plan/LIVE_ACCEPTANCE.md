@@ -1,81 +1,104 @@
-# Issue #9 live Controller checklist
+# Executable Issue #9 Controller live fixture
 
-Status: **NOT RUN / authorization-dependent**. Offline fake-GitHub tests are
-Developer self-checks, not independent Acceptance or live evidence. This document
-does not authorize network writes and is not a project execution ledger.
+**Developer did not run this test. No live PASS or cleanup is claimed.**
+`TestControllerLivePlan` in `live_test.go` is executable and skipped by default.
+No production bootstrap/allocation API was added.
 
-## Authority and exact scope
+## Scope and immutable inputs
 
-- A trusted Controller must explicitly authorize the exact repository, immutable
-  candidate head, fixture prefix, actions, finite run budget and cleanup actions.
-  Use one unique prefix `issue9-<candidate-head>-<nonce>-` for all new artifacts
-  and operation IDs; never adopt an existing object based only on its title.
-- All temporary Issue fixtures must be assigned to the **existing Milestone #1**.
-  Verify its native database ID and node ID read-only before any fixture write.
-  Do not edit, close, delete, reassign, or otherwise mutate that pre-existing
-  Milestone or any other pre-existing Issue, PR, comment, dependency or setting.
-- **Pending authorization clarification:** a uniquely prefixed temporary
-  Milestone may be needed to exercise `CreateMilestone`. Creating it is not yet
-  authorized by this checklist. Nor is assigning Issue fixtures to that new
-  Milestone authorized: that conflicts with the explicit Milestone #1 constraint.
-  If the publication path requires that assignment, its full live test is
-  BLOCKED until the Controller resolves the scope. Do not silently substitute
-  a weaker test or report full-path success.
-- Publisher credentials remain with the Controller. Do not expose them to
-  models, candidate code, logs, evidence bodies, or fixture JSON. Native identity
-  separation and existing Gateway authorization callbacks remain mandatory.
+This tests the plan package boundary under [the Controller ruling](https://github.com/yes8080/projectctl/pull/17#issuecomment-5861150346)
+and [one PR #3 comment authorization](https://github.com/yes8080/projectctl/pull/17#issuecomment-5861156252).
+Startup/design Agent/new design PR/Planner execution are Issue #11 integration
+work, not claimed here. The Controller-owned fixture InputReader fetches pinned
+JSON through real Gateway Git-object reads each time. It is not an Agent input
+or fake GitHub remote. The production planner.InspectInputs default stays strict.
 
-## Before the first write
+The exact tested commit contains `testdata/live/{bundle,candidate,inputs,
+authorization,request-blueprint}.json`. SHA-256 expectations come from these
+embedded files; every file is fetched at the full supplied commit by ReadSource.
+The blueprint pins existing resources, not invented future native IDs. The host
+constructs the exact Request from real readbacks and emits it with ReviewContext;
+that disposable output is not a local authority or second project ledger.
 
-1. Read the current Issue contract, approved baseline/plan input and PR head from
-   GitHub. Confirm the tested candidate head is still exact and record evidence
-   on that PR, not in a local parallel ledger.
-2. Resolve the repository, Milestone #1 and any authorized temporary control
-   Issue to complete native identities. List matching objects with complete
-   pagination. Existing matches, unavailable reads or ambiguous identity block
-   allocation; an empty list is never evidence of a fresh publisher generation.
-3. The Controller must supply a once-only fresh-allocation event for each exact
-   Gateway request. Register a native publisher Run bound to the Intent request
-   digest. Do not reconstruct an admission from saved JSON or a prior Run.
-4. Establish a cleanup allowlist from the exact native objects created in this
-   run. Keep pre-existing resources out of it. Define whether closing or deletion
-   is authorized for each newly created object before execution.
+Historical navigation is actual merged PR #3, commit
+`1da6dfa438d4deaa13d42475e33fe84492c3d40b`, `docs/pipeline-design.md`, SHA-256
+`3c5d9585a9fec44455af7a2a4c2a4090a6d78b297cd6f07a196a09bd2a5184c8`.
+The structured Design DTO is **not** JSON decoded from that Markdown. Fixture
+Acceptance does not replace historical approval or prove upstream startup.
 
-## Bounded publication and recovery evidence
+Only the Controller holds the token. The fixed policy grants its stable native
+identity Controller/Publisher/PlanReviewer roles. The actual separate Agent's
+instance must differ from the fixture Planner instance and review the exact
+Run/input chain. This is transparent same-login publication, **not native
+credential isolation**. Other policies still require their own native principals.
 
-1. Observe deterministic publication ordering: Milestone (if authorized), Issues,
-   exact contract comments, native dependency edges, then the protocol Plan
-   candidate record. Inspect the real GitHub objects and full native identities.
-2. At each incomplete prefix, reconstruct with a new Engine/Gateway using only
-   the same remote references. Verify it cannot report an active plan, invent
-   missing member contracts, infer dependencies from prose, or dispatch work.
-3. For any real timeout or lost response, preserve the exact request and remote
-   Run/intent references. Resume through read-only reconciliation. Do not issue
-   another POST merely because an accepted effect is temporarily invisible.
-   An intentionally injected network-fault scenario needs separate authorization;
-   a deterministic httptest simulation must be labeled offline.
-4. Reconcile a fully visible result with a fresh Engine/Gateway and confirm no
-   duplicate Milestone, Issue, contract comment, edge, intent, or Plan candidate.
-   Each intended operation must resolve to one exact native effect.
-5. The final Plan is still a **candidate**, not activation or dispatch authority.
-   Independent review and exact Controller approval are separate gates. Never
-   turn partial publication, an unapproved newer revision, or a successful write
-   response into an active-plan claim.
+## Exact write accounting
 
-## Cleanup and final outcome
+| Stage | New comments |
+|---|---:|
+| Seed Contract, Designer Run, fixture Acceptance on PR #3, fixture Approval, Baseline, Planner Run | 6 |
+| Create one Issue: Publisher Run + intent | 2 |
+| Publish Contract: Publisher Run + intent + Contract | 3 |
+| Publish Plan: Publisher Run + intent + Plan | 3 |
+| Reviewer Run, externally published PlanAcceptance, Controller Approval | 3 |
+| Optional Controller result evidence | 1 |
+| Planned maximum | **18** |
 
-- Operate only on the cleanup allowlist of newly created native objects. Re-read
-  identity before each authorized cleanup action; changed or ambiguous identity
-  blocks that action. Preserve failed-run evidence rather than deleting it to
-  make the test appear clean.
-- Verify each authorized cleanup result from GitHub, including that temporary
-  Issue fixtures are closed/removed as authorized and any separately authorized
-  temporary Milestone is cleaned up. Do not alter Milestone #1 itself.
-- If cleanup is denied, times out, or cannot be confirmed, report
-  **CLEANUP INCOMPLETE / BLOCKED**, list the exact remaining URLs, and do not claim
-  the live acceptance run completed successfully. Recovery must not create
-  replacement fixtures or replay publication.
-- Publish a concise outcome on the implementation PR with tested head SHA,
-  exact fixture/evidence URLs, native identity checks, observed recovery behavior,
-  approval boundary, cleanup status and unresolved blockers. Never label missing
-  authorization, skipped steps or simulated results as live PASS.
+The seed Contract is the acyclic leaf required by nonempty Run.Inputs; it is
+fixture context, not a product task. There is **1 new Issue, 0 edges, 0 Milestones**.
+Hard caps remain 3/24/2/0. Each phase recounts all matching native comments on #2,
+PR #3 and its new Issue, including external review. Milestone #1 is read-only.
+All comments are retained; only the new Issue may be closed.
+
+## Controller invocation
+
+Supply `PROJECTCTL_GITHUB_TOKEN` through the existing secret provider, not argv,
+fixture JSON, logs or pasted shell history. Choose a never-used 12-hex nonce.
+The exact candidate commit must already be readable on GitHub.
+
+```sh
+PROJECTCTL_PLAN_LIVE=CONTROLLER_EXPLICIT_OPT_IN \
+PROJECTCTL_PLAN_LIVE_PHASE=publish \
+PROJECTCTL_PLAN_LIVE_COMMIT=<exact-40-char-head> \
+PROJECTCTL_PLAN_LIVE_PREFIX=issue9-<head12>-<nonce12> \
+PROJECTCTL_PLAN_REVIEWER_INSTANCE=<actual-independent-agent-instance> \
+go test ./internal/pipeline/plan -run '^TestControllerLivePlan$' -count=1 -v
+```
+
+`publish` refuses any used prefix. Host append calls perform one POST and no
+automatic retry. Never rerun publish after an uncertain result. Fresh allocation
+and cross-process fencing remain Controller obligations; no exactly-once claim.
+The test starts no model. Issue/contract/Plan/intent publication uses real Gateway
+Admit/Apply with one-use permissions, while root and Publisher Run records use
+the explicitly authorized test-only host boundary.
+
+Publish stops at `AWAITING_INDEPENDENT_AGENT_REVIEW`, emitting exact Request,
+Plan, reviewer Run, ReviewContext and cleanup native IDs/URLs. **This is not PASS.**
+The separate Agent must inspect the six checks, then the Controller publishes one
+strict PlanAcceptance on #2 with:
+
+- operation_id `<prefix>/independent-plan-review`, subject milestone 1;
+- exact emitted Plan candidate and reviewer Run references;
+- assessments `coverage`, `dag`, `acceptance`, `environment`, `budgets`,
+  `completion`, each referencing that Plan with honest result/reason;
+- explicit decision/reason and unresolved_findings. Never invent PASS.
+
+After separately authorizing the exact successful independent review, use the
+same command/pins with phase `finish`. It reads existing roots without allocating
+replacements, validates the review, appends Approval once, invokes Activate and
+a fresh Engine's CheckFrozen, closes its new Issue, verifies closure and rechecks
+the freeze. An unknown finish POST result must **not** be retried: inspect the
+native operation read-only and resolve through Controller authority, or BLOCK.
+
+## Cleanup and uncertainty
+
+Use phase `cleanup` with the same pins to abandon a partial run. It permits only
+own-Issue closure. The single-slice fixture expects exactly one native Issue;
+zero/duplicate/hidden/deleted observations do not mean successful empty cleanup.
+Identity, milestone and body digest are verified before PATCH, followed by a
+closure reread. Edited/ambiguous objects need investigation, not replacement.
+
+Report every remaining native URL. Refused/timed-out/unconfirmed cleanup is
+**CLEANUP INCOMPLETE / FAIL**, even if activation passed. Never edit/delete old
+objects, Milestone #1, comments, branches or settings. This test is not upstream
+E2E, a scheduler, credential isolation or a general crash-safe allocation host.

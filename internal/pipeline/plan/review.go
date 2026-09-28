@@ -2,7 +2,6 @@ package plan
 
 import (
 	"context"
-	"reflect"
 
 	"github.com/yes8080/projectctl/internal/pipeline/design"
 	"github.com/yes8080/projectctl/internal/pipeline/planner"
@@ -78,13 +77,16 @@ func (e *Engine) ReviewInput(ctx context.Context, r Request) (ReviewContext, err
 // Activate is read-only. Only a caller-selected native Controller Approval of a
 // precise independent PlanAcceptance can select the exact published Plan. Merely
 // publishing a Plan, closing an Issue or receiving a model PASS cannot activate it.
+// Independence is separate Agent instances and exact authorized Run inputs. An
+// explicit bootstrap policy may grant multiple roles to one native principal;
+// this gate does not claim credential or native-account isolation.
 func (e *Engine) Activate(ctx context.Context, r ReviewRequest) (Frozen, error) {
 	first, err := e.activate(ctx, r)
 	if err != nil {
 		return Frozen{}, err
 	}
 	second, err := e.activate(ctx, r)
-	if err != nil || !reflect.DeepEqual(first, second) || ctx.Err() != nil {
+	if err != nil || digest(first) != digest(second) || ctx.Err() != nil {
 		return Frozen{}, ErrBlocked
 	}
 	return second, nil
@@ -100,7 +102,7 @@ func (e *Engine) activate(ctx context.Context, r ReviewRequest) (Frozen, error) 
 		return Frozen{}, ErrBlocked
 	}
 	reviewVerified, err := e.remote.FetchRecord(ctx, r.Review)
-	if err != nil || !reference(reviewVerified.Reference(), r.Review) || protocol.Authorize(reviewVerified, p.policy, protocol.RolePlanReviewer) != nil || identity(r.Review.Author, r.Plan.Author) || identity(r.Review.Author, r.Publication.PlannerRun.Author) {
+	if err != nil || !reference(reviewVerified.Reference(), r.Review) || protocol.Authorize(reviewVerified, p.policy, protocol.RolePlanReviewer) != nil {
 		return Frozen{}, ErrBlocked
 	}
 	value, err := reviewVerified.Record()
@@ -126,7 +128,7 @@ func (e *Engine) activate(ctx context.Context, r ReviewRequest) (Frozen, error) 
 		return Frozen{}, ErrBlocked
 	}
 	run, ok := value.(*protocol.Run)
-	if !ok || run.Role != protocol.RolePlanReviewer || run.Subject != view.Candidate.Subject || run.InputSHA256 != view.InputSHA256 || run.AgentInstance == p.plannerRun.AgentInstance || run.OperationID == p.plannerRun.OperationID || reference(review.Run, r.Publication.PlannerRun) || len(run.Inputs) != len(view.Inputs) || len(run.ResultReferences) != 0 || run.Budget != view.Candidate.Budget || run.Attempt > run.Budget.MaxPlanningRounds {
+	if !ok || run.Role != protocol.RolePlanReviewer || run.Subject != view.Candidate.Subject || run.InputSHA256 != view.InputSHA256 || run.AgentInstance == p.plannerRun.AgentInstance || run.OperationID == p.plannerRun.OperationID || reference(review.Run, r.Publication.PlannerRun) || len(run.Inputs) != len(view.Inputs) || len(run.ResultReferences) != 0 || !budgetWithin(run.Budget, view.Candidate.Budget) || run.Attempt > view.Candidate.Budget.MaxPlanningRounds {
 		return Frozen{}, ErrBlocked
 	}
 	for i, ref := range view.Inputs {

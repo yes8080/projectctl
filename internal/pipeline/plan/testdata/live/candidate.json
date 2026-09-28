@@ -1,0 +1,86 @@
+{
+  "schema": "projectctl.plan-candidate/v1",
+  "contracts": [
+    {
+      "key": "integration",
+      "kind": "integration",
+      "goal": "Validate the bounded Issue 9 plan-stage live fixture",
+      "scope": [
+        "Publish one temporary Issue and its exact Contract in existing Milestone 1",
+        "Publish a Plan candidate and read back its exact native identities",
+        "Verify independent Agent-instance review, exact Controller approval, activation and cleanup"
+      ],
+      "non_goals": [
+        "No startup or design or Planner end-to-end validation",
+        "No native credential-separation claim",
+        "No changes to pre-existing objects or product dispatch"
+      ],
+      "requirements": [
+        "integration"
+      ],
+      "acceptance": [
+        {
+          "id": "AC-1",
+          "statement": "Verify the authorized plan-stage fixture through real native publication, exact independent Agent-instance review, Controller approval, activation, remote drift checks and confirmed cleanup.",
+          "requirements": [
+            "integration"
+          ],
+          "checks": [
+            "fixture-contract",
+            "offline-plan-regression"
+          ]
+        }
+      ],
+      "verification": [
+        {
+          "id": "fixture-contract",
+          "argv": [
+            "go",
+            "test",
+            "./internal/pipeline/plan",
+            "-run",
+            "^TestPlanLiveFixtureBundle$",
+            "-count=1"
+          ]
+        },
+        {
+          "id": "offline-plan-regression",
+          "argv": [
+            "go",
+            "test",
+            "./internal/pipeline/plan",
+            "-run",
+            "^TestPublication",
+            "-count=1"
+          ]
+        }
+      ],
+      "acceptance_environment": {
+        "os": [
+          "macos"
+        ],
+        "go": "1.22",
+        "network": "Real GitHub REST through the production Gateway only; offline checks use local httptest",
+        "credentials": "Controller-held existing GitHub credential; native credential separation is not claimed",
+        "fixtures": "Committed exact-head Issue 9 plan-only fixture; existing control Issue 2 and Milestone 1"
+      },
+      "impact_surface": [
+        "internal/pipeline/plan",
+        "Temporary native GitHub fixture objects explicitly recorded by the runner"
+      ],
+      "risks": [
+        {
+          "risk": "An accepted remote write has an uncertain response",
+          "mitigation": "Reconcile the exact operation read-only; never automatically repeat its POST"
+        },
+        {
+          "risk": "Cleanup or native identity cannot be confirmed",
+          "mitigation": "Report FAIL with surviving native URLs and stop"
+        }
+      ],
+      "dependencies": [],
+      "candidate_binding": "exact_source_artifact_environment"
+    }
+  ],
+  "open_decisions": []
+}

@@ -15,7 +15,57 @@ import (
 	"github.com/yes8080/projectctl/internal/pipeline/protocol"
 )
 
-func digest(v any) string { b, _ := json.Marshal(v); d, _ := protocol.DigestJSON(b); return d }
+func digest(v any) string {
+	b, _ := json.Marshal(displayNeutral(reflect.ValueOf(v)).Interface())
+	d, _ := protocol.DigestJSON(b)
+	return d
+}
+
+// Only transient identity projections omit display logins. Stored record bytes,
+// source pins and policy digests are never rewritten or weakened by this helper.
+func displayNeutral(v reflect.Value) reflect.Value {
+	if !v.IsValid() {
+		return v
+	}
+	if v.Type() == reflect.TypeOf(protocol.GitHubIdentity{}) {
+		identity := v.Interface().(protocol.GitHubIdentity)
+		identity.Login = ""
+		return reflect.ValueOf(identity)
+	}
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if v.IsNil() {
+			return v
+		}
+		copy := reflect.New(v.Type()).Elem()
+		if v.Kind() == reflect.Pointer {
+			copy.Set(reflect.New(v.Type().Elem()))
+			copy.Elem().Set(displayNeutral(v.Elem()))
+		} else {
+			copy.Set(displayNeutral(v.Elem()))
+		}
+		return copy
+	case reflect.Struct:
+		copy := reflect.New(v.Type()).Elem()
+		copy.Set(v)
+		for i := 0; i < v.NumField(); i++ {
+			if v.Type().Field(i).IsExported() {
+				copy.Field(i).Set(displayNeutral(v.Field(i)))
+			}
+		}
+		return copy
+	case reflect.Slice:
+		if v.IsNil() {
+			return v
+		}
+		copy := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			copy.Index(i).Set(displayNeutral(v.Index(i)))
+		}
+		return copy
+	}
+	return v
+}
 func identity(a, b protocol.GitHubIdentity) bool {
 	return a.ID == b.ID && a.NodeID == b.NodeID && a.Type == b.Type
 }
@@ -28,8 +78,26 @@ func operation(r Request, kind, key string) string {
 	}
 	return r.OperationPrefix + "/" + kind + "/" + protocol.SHA256([]byte(key))
 }
-func commentRef(c gh.Comment) protocol.Reference {
-	return protocol.Reference{Kind: "issue_comment", DatabaseID: c.DatabaseID, NodeID: c.NodeID, URL: c.URL, Author: c.Author, BodySHA256: c.Content.BodySHA256, CanonicalSHA256: c.Content.CanonicalSHA256}
+func policyReference(ref protocol.Reference, policy protocol.Policy) protocol.Reference {
+	// Use the pinned policy's display spelling when reconstructing published
+	// reference bytes. A native login rename must not rewrite an existing Plan.
+	for _, grant := range policy.Grants {
+		if identity(ref.Author, grant.Principal) {
+			ref.Author.Login = grant.Principal.Login
+			break
+		}
+	}
+	return ref
+}
+func commentRef(c gh.Comment, policy protocol.Policy) protocol.Reference {
+	return policyReference(protocol.Reference{Kind: "issue_comment", DatabaseID: c.DatabaseID, NodeID: c.NodeID, URL: c.URL, Author: c.Author, BodySHA256: c.Content.BodySHA256, CanonicalSHA256: c.Content.CanonicalSHA256}, policy)
+}
+func budgetWithin(run, policy protocol.Budget) bool {
+	if run.MaxRunSeconds <= 0 || run.MaxRunSeconds > policy.MaxRunSeconds || run.MaxRunSeconds > 1800 {
+		return false
+	}
+	run.MaxRunSeconds = policy.MaxRunSeconds
+	return run == policy
 }
 func (e *Engine) source(ctx context.Context, ref protocol.SourceReference) ([]byte, error) {
 	b, err := e.remote.ReadSource(ctx, ref)
@@ -80,7 +148,7 @@ func (e *Engine) prepare(ctx context.Context, r Request) (prepared, error) {
 		return p, err
 	}
 	run, ok := value.(*protocol.Run)
-	if !ok || run.Role != protocol.RolePlanner || run.Subject != (protocol.Subject{Issue: r.Input.Issue.Number}) || run.InputSHA256 != input.SHA256 || len(run.Inputs) != 1 || !reference(run.Inputs[0], r.Input.Baseline) {
+	if !ok || run.Role != protocol.RolePlanner || run.Subject != (protocol.Subject{Issue: r.Input.Issue.Number}) || run.InputSHA256 != input.SHA256 || len(run.Inputs) != 1 || !reference(run.Inputs[0], r.Input.Baseline) || !budgetWithin(run.Budget, input.Manifest.Policy.Budget) || run.Attempt > input.Manifest.Policy.Budget.MaxPlanningRounds {
 		return p, ErrBlocked
 	}
 	p.plannerRun = *run
@@ -267,7 +335,7 @@ func (e *Engine) inspect(ctx context.Context, r Request, p prepared) (State, err
 		if out.Comment == nil {
 			return State{}, ErrBlocked
 		}
-		ref := commentRef(*out.Comment)
+		ref := commentRef(*out.Comment, p.policy)
 		actual, err := e.record(ctx, ref, p.policy, protocol.RoleController)
 		if err != nil || !reflect.DeepEqual(actual, contract) {
 			return State{}, ErrBlocked
@@ -288,7 +356,7 @@ func (e *Engine) inspect(ctx context.Context, r Request, p prepared) (State, err
 	if err != nil {
 		return State{}, err
 	}
-	plan := &protocol.Plan{Envelope: protocol.Envelope{Schema: protocol.Schema, Kind: protocol.KindPlan, Project: r.Input.Project, Subject: protocol.Subject{Milestone: milestone.Number}, OperationID: operation(r, "candidate", ""), Version: 1}, Baseline: r.Input.Baseline, Members: members, NativeTopologySHA256: topology, Budget: p.input.Manifest.Policy.Budget, Completion: CompletionPolicy(p)}
+	plan := &protocol.Plan{Envelope: protocol.Envelope{Schema: protocol.Schema, Kind: protocol.KindPlan, Project: r.Input.Project, Subject: protocol.Subject{Milestone: milestone.Number}, OperationID: operation(r, "candidate", ""), Version: 1}, Baseline: policyReference(r.Input.Baseline, p.policy), Members: members, NativeTopologySHA256: topology, Budget: p.input.Manifest.Policy.Budget, Completion: CompletionPolicy(p)}
 	if _, err := protocol.Encode(plan); err != nil {
 		return State{}, ErrBlocked
 	}
@@ -302,7 +370,7 @@ func (e *Engine) inspect(ctx context.Context, r Request, p prepared) (State, err
 	if out.Comment == nil {
 		return State{}, ErrBlocked
 	}
-	ref := commentRef(*out.Comment)
+	ref := commentRef(*out.Comment, p.policy)
 	actual, err := e.record(ctx, ref, p.policy, protocol.RoleController)
 	if err != nil || !reflect.DeepEqual(actual, plan) {
 		return State{}, ErrBlocked

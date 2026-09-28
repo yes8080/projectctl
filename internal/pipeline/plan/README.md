@@ -13,7 +13,10 @@ Planner request, immutable candidate artifact, Planner Run, immutable native-rol
 authorization policy and a stable publication prefix. A candidate artifact is a
 historical proposal, not an editable execution ledger. Existing `planner` input
 verification is reused without duplicating its identity algorithm. The original
-Run must match that exact baseline and canonical input digest. Source bytes,
+Run must match that exact baseline and canonical input digest. Project budget
+dimensions must equal fixed policy; only its single-run timeout may be narrowed,
+and its attempt cannot exceed MaxPlanningRounds. Transient authority hashes omit
+display Login, never stable IDs/node/type or pinned source/body digests. Source bytes,
 authorization policy, native baseline, repository, control Issue and design merge
 objects are reread; no successful local observation is cached.
 
@@ -81,8 +84,11 @@ environment, budgets and completion. It includes no Planner conversation or
 self-assessment. Its canonical identity binds the entire context and publication
 input. Reviewer Run Inputs must be exactly `[plan, baseline, planner_run]`, the
 reviewer instance must differ from the Planner's and its native role must be
-authorized. The review's native author must differ from the Controller publication
-identity. Each PASS assessment references the exact Plan as the inspected data,
+authorized. An explicitly pinned bootstrap policy may grant the same native
+principal Controller/Publisher/PlanReviewer roles, while distinct Agent instances
+and exact Run/input chains remain mandatory. This does not prove credential
+isolation; policies assigning different principals still require each native
+role. Each PASS assessment references the exact Plan as the inspected data,
 not a fabricated executable Evidence record. The Controller then approves that
 precise PASS/no-findings PlanAcceptance, never an unreviewed Plan directly.
 
@@ -126,5 +132,6 @@ native drift, independent-review binding and frozen-state rechecks. They do not
 prove live token permissions, dependency availability or Controller cleanup.
 See [LIVE_ACCEPTANCE.md](LIVE_ACCEPTANCE.md) for the uniquely scoped Controller
 fixture plan and mandatory cleanup report. Cleanup failure is a live acceptance
-blocker, not a reason to erase evidence or call publication successful. No cleanup
-executor or full host Controller loop is claimed by this slice.
+blocker, not a reason to erase evidence or call publication successful. The
+default-disabled test-only Controller host can close and verify its exact new
+fixture Issue; no production cleanup executor or full Controller loop is claimed.
