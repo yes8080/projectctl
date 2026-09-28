@@ -37,6 +37,18 @@ complete Issues/comments/Milestones collections, and both `blocked_by` and
 Issue lookup and dependency reads reject PR masquerades. Milestones correctly use
 `creator` and `description`, not Issue `user`/`body` fields.
 
+`ReadPullRequest` keeps API `2026-03-10`, which removed `merge_commit_sha` from
+PR responses. For a merged PR it reads every page of that exact Issue's native
+events and requires exactly one `merged` event. All event database/node IDs,
+event URLs and actors are validated; duplicated identities, malformed or missing
+merge events, and wrong-repository/malformed commit IDs or URLs block the read.
+An optional embedded Issue must identify that exact PR. A present legacy field
+can only expose a contradiction; it never supplies or overrides the merge SHA.
+Unmerged PRs do not read events or expose a test-merge SHA. No API downgrade,
+head/base inference, caller-supplied merge identity or local cached fact is used.
+The returned commit still passes the existing downstream exact commit/tree gates.
+These reads share one credential snapshot but are not an atomic GitHub snapshot.
+
 All paginated reads follow `Link rel="next"`, even after a short page. They retain
 the requested filters, traverse consecutive pages, and reject malformed/multiple
 next links, origin/path/filter escape, cycles, duplicate native identities and

@@ -162,8 +162,15 @@ func TestReadPullRequestNativeFacts(t *testing.T) {
 				n["draft"] = true
 			}
 			g, _ := testServerFixtureGateway(t, func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != http.MethodGet || r.URL.Path != "/repos/octo/pipeline/pulls/3" {
+				if r.Method != http.MethodGet {
 					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+				}
+				if r.URL.Path == "/repos/octo/pipeline/issues/3/events" && mode == "merged" {
+					testServerFixtureJSON(t, w, []any{map[string]any{"id": 31, "node_id": "ME_31", "url": "https://api.github.com/repos/octo/pipeline/issues/events/31", "event": "merged", "actor": testServerFixtureAuthor(), "commit_id": strings.Repeat("c", 40), "commit_url": "https://api.github.com/repos/octo/pipeline/commits/" + strings.Repeat("c", 40)}})
+					return
+				}
+				if r.URL.Path != "/repos/octo/pipeline/pulls/3" {
+					t.Errorf("unexpected endpoint %s", r.URL.Path)
 				}
 				testServerFixtureJSON(t, w, n)
 			})
@@ -204,7 +211,6 @@ func TestReadPullRequestRejectsMissingAndConflictingFacts(t *testing.T) {
 		{"draft null", func(n map[string]any) { n["draft"] = nil }},
 		{"merged open", func(n map[string]any) { n["state"] = "open" }},
 		{"merged draft", func(n map[string]any) { n["draft"] = true }},
-		{"merge absent", func(n map[string]any) { delete(n, "merge_commit_sha") }},
 		{"merge malformed", func(n map[string]any) { n["merge_commit_sha"] = "main" }},
 		{"head sha", func(n map[string]any) { n["head"].(map[string]any)["sha"] = "head" }},
 		{"base sha", func(n map[string]any) { n["base"].(map[string]any)["sha"] = "base" }},
